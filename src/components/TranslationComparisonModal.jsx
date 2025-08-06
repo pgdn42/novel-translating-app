@@ -14,6 +14,7 @@ const TranslationComparisonModal = ({ isOpen, onClose, onAccept, comparisonData 
             const style = {
                 backgroundColor: part.added ? '#2a472a' : part.removed ? '#5d2828' : 'transparent',
                 padding: '1px 0',
+                whiteSpace: 'pre-wrap', // Ensure line breaks are respected
             };
             return <span key={index} style={style}>{part.value}</span>;
         });
@@ -37,7 +38,7 @@ const TranslationComparisonModal = ({ isOpen, onClose, onAccept, comparisonData 
 
                 {Object.keys(newGlossaryEntries).length > 0 && (
                     <div className="new-glossary-section">
-                        <h3>New/Updated Glossary Entries</h3>
+                        <h3>New/Updated Glossary Entries That Will Be Saved</h3>
                         <pre>
                             {JSON.stringify(newGlossaryEntries, null, 2)}
                         </pre>
@@ -45,8 +46,8 @@ const TranslationComparisonModal = ({ isOpen, onClose, onAccept, comparisonData 
                 )}
 
                 <div className="modal-footer">
-                    <button onClick={onClose} className="btn-secondary">Discard</button>
-                    <button onClick={onAccept} className="btn-primary">Accept and Save</button>
+                    <button onClick={onClose} className="btn-secondary">Discard New Translation</button>
+                    <button onClick={onAccept} className="btn-primary">Accept and Save New Translation</button>
                 </div>
             </div>
         </div>

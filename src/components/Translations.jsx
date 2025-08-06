@@ -227,18 +227,17 @@ const Translations = ({
                                 <span className="toc-item-number">Ch. {chapter.chapterNumber}</span>
                                 <span className="toc-item-title">{chapter.title}</span>
                             </div>
-                            {isEditing && (
-                                <button
-                                    className="toc-item-delete"
-                                    onClick={(e) => {
-                                        e.stopPropagation(); // Prevents other click handlers from firing
-                                        onDeleteChapter(chapter.sourceUrl);
-                                    }}
-                                    title="Delete Chapter"
-                                >
-                                    <img src={DeleteIcon} alt="Delete" />
-                                </button>
-                            )}
+                            <button
+                                className="toc-item-delete"
+                                onClick={(e) => {
+                                    e.stopPropagation(); // Prevents other click handlers from firing
+                                    onDeleteChapter(chapter.sourceUrl);
+                                }}
+                                title="Delete Chapter"
+                            >
+                                <img src={DeleteIcon} alt="Delete" />
+                            </button>
+
                         </div>
                     ))
                 ) : (

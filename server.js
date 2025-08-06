@@ -74,26 +74,68 @@ function startServer(dialog) {
         res.json({ path: (canceled || !filePaths.length) ? null : filePaths[0] });
     });
 
-    app.post('/fs/save-raw-chapters', async (req, res) => {
-        const { bookName, rawChapters } = req.body;
+    app.post('/fs/save-book', async (req, res) => {
+        const { bookName, bookData } = req.body;
         const booksDirPath = store.get('booksDirectoryPath');
         if (!booksDirPath || !bookName) {
-            return res.status(400).json({ error: 'Missing book directory path or book name. Please import a book folder first to set the directory.' });
+            return res.status(400).json({ error: 'Missing book directory path or book name.' });
         }
 
         const bookPath = path.join(booksDirPath, bookName);
-        const rawChaptersPath = path.join(bookPath, 'chapters_raw');
-        const filePath = path.join(rawChaptersPath, '_raw_data.json');
 
         try {
-            await fsp.mkdir(rawChaptersPath, { recursive: true });
-            await fsp.writeFile(filePath, JSON.stringify(rawChapters, null, 2), 'utf-8');
-            res.status(200).json({ success: true });
+            await fsp.mkdir(bookPath, { recursive: true });
+
+            const writePromises = [];
+
+            // Save description
+            if (bookData.description != null) {
+                writePromises.push(fsp.writeFile(path.join(bookPath, 'description.txt'), bookData.description, 'utf-8'));
+            }
+
+            // Save settings
+            if (bookData.settings != null) {
+                writePromises.push(fsp.writeFile(path.join(bookPath, 'settings.json'), JSON.stringify(bookData.settings, null, 2), 'utf-8'));
+            }
+
+            // Save world-building
+            if (bookData.worldBuilding != null) {
+                writePromises.push(fsp.writeFile(path.join(bookPath, 'world-building.json'), JSON.stringify(bookData.worldBuilding, null, 2), 'utf-8'));
+            }
+
+            // Save glossary (as a JSON array)
+            if (bookData.glossary != null) {
+                const glossaryArray = Object.values(bookData.glossary);
+                writePromises.push(fsp.writeFile(path.join(bookPath, 'glossary.json'), JSON.stringify(glossaryArray, null, 2), 'utf-8'));
+            }
+
+            // Save raw chapters
+            if (bookData.rawChapterData != null) {
+                const rawChaptersPath = path.join(bookPath, 'chapters_raw');
+                await fsp.mkdir(rawChaptersPath, { recursive: true });
+                writePromises.push(fsp.writeFile(path.join(rawChaptersPath, '_raw_data.json'), JSON.stringify(bookData.rawChapterData, null, 2), 'utf-8'));
+            }
+
+            // Save translated chapters
+            if (bookData.chapters != null) {
+                const translatedChaptersPath = path.join(bookPath, 'chapters_translated');
+                await fsp.mkdir(translatedChaptersPath, { recursive: true });
+                for (const chapter of bookData.chapters) {
+                    // Sanitize filename to prevent path traversal issues
+                    const safeFilename = chapter.title.replace(/[^a-z0-9_.-]/gi, '_').substring(0, 100) + '.txt';
+                    writePromises.push(fsp.writeFile(path.join(translatedChaptersPath, safeFilename), chapter.content, 'utf-8'));
+                }
+            }
+
+            await Promise.all(writePromises);
+            res.status(200).json({ success: true, message: `Book "${bookName}" saved successfully.` });
+
         } catch (error) {
-            console.error(`Failed to save raw chapters for ${bookName}:`, error);
-            res.status(500).json({ error: 'Failed to write raw chapters to disk.' });
+            console.error(`Failed to save book data for ${bookName}:`, error);
+            res.status(500).json({ error: `Failed to write book data to disk for "${bookName}".` });
         }
     });
+
 
     app.post('/fs/create-book', async (req, res) => {
         const { bookName } = req.body;

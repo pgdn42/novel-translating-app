@@ -163,15 +163,15 @@ const api = {
         }
     },
 
-    saveRawChapters: async (bookName, rawChapters) => {
-        const response = await fetch(`${API_BASE_URL}/fs/save-raw-chapters`, {
+    saveBook: async (bookName, bookData) => {
+        const response = await fetch(`${API_BASE_URL}/fs/save-book`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ bookName, rawChapters }),
+            body: JSON.stringify({ bookName, bookData }),
         });
         if (!response.ok) {
             const error = await response.json();
-            throw new Error(`Failed to save raw chapters: ${error.error}`);
+            throw new Error(`Failed to save book: ${error.error}`);
         }
     }
 };
