@@ -19,8 +19,6 @@ const NewBookModal = ({ isOpen, onClose, onCreate, existingBookNames }) => {
             return;
         }
         onCreate(trimmedName);
-        setBookName('');
-        setError('');
     };
 
     const handleClose = () => {
@@ -29,9 +27,21 @@ const NewBookModal = ({ isOpen, onClose, onCreate, existingBookNames }) => {
         onClose();
     };
 
+    const handleKeyDown = (e) => {
+        if (e.key === 'Enter') {
+            handleCreate();
+        } else if (e.key === 'Escape') {
+            handleClose();
+        }
+    };
+
     return (
-        <div className="modal-backdrop">
-            <div className="modal-content">
+        // When the dark background (backdrop) is clicked, close the modal.
+        <div className="modal-backdrop" onClick={handleClose}>
+            {/* Clicks on the modal itself should not propagate to the backdrop.
+                This prevents the modal from closing when you click on the input field.
+                This is likely the core of the issue. */}
+            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
                 <h3>Create New Book</h3>
                 <div className="modal-body">
                     <label htmlFor="new-book-name">Book Name:</label>
@@ -40,7 +50,10 @@ const NewBookModal = ({ isOpen, onClose, onCreate, existingBookNames }) => {
                         id="new-book-name"
                         value={bookName}
                         onChange={(e) => setBookName(e.target.value)}
+                        onKeyDown={handleKeyDown}
                         placeholder="Enter the name of the book"
+                        // The autoFocus attribute tells the browser to automatically
+                        // focus this field when the modal is rendered.
                         autoFocus
                     />
                     {error && <p className="modal-error">{error}</p>}

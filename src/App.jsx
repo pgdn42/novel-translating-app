@@ -318,11 +318,26 @@ const App = () => {
     const newBooks = { ...appData.books };
     delete newBooks[bookNameToDelete];
 
+    const remainingBookNames = Object.keys(newBooks);
+    let newActiveBook = appData.activeBook;
+    let activeBookChanged = false;
+
+    if (appData.activeBook === bookNameToDelete) {
+      newActiveBook = remainingBookNames.length > 0 ? remainingBookNames[0] : null;
+      activeBookChanged = true;
+    }
+
     const newAppData = {
       ...appData,
       books: newBooks,
-      activeBook: appData.activeBook === bookNameToDelete ? null : appData.activeBook,
+      activeBook: newActiveBook,
     };
+
+    if (activeBookChanged) {
+      setCurrentChapter(null);
+      setCurrentChapterIndex(-1);
+      setCurrentChapterList([]);
+    }
 
     updateAppData(newAppData);
     logToPanel('info', `Deleted book: "${bookNameToDelete}"`);
@@ -384,7 +399,6 @@ const App = () => {
       const { path } = await api.showDirectoryPicker();
       if (!path) return;
 
-      // This is now the primary point for setting the path on the server
       await api.setBooksDirectory(path);
       logToPanel('info', `Set book directory on server: ${path}`);
 
@@ -393,19 +407,26 @@ const App = () => {
 
       let newBooks = { ...appData.books };
       let importedCount = 0;
+      let firstImportedBook = null;
+
       for (const bookName in importedBooks) {
+        if (!firstImportedBook) {
+          firstImportedBook = bookName;
+        }
         newBooks[bookName] = importedBooks[bookName];
         importedCount++;
       }
 
       if (importedCount > 0) {
         const newAppData = { ...appData, books: newBooks };
+        if (!newAppData.activeBook && firstImportedBook) {
+          newAppData.activeBook = firstImportedBook;
+        }
         updateAppData(newAppData);
         logToPanel('success', `Successfully imported ${importedCount} book(s).`);
       } else {
         logToPanel('warning', 'No new books were found in the selected folder.');
       }
-
     } catch (error) {
       console.error("Import failed:", error);
       logToPanel('error', `Import failed: ${error.message}`);
@@ -498,21 +519,38 @@ const App = () => {
         return;
       }
 
-      // Find all URLs of chapters that are already translated
       const translatedUrls = new Set(book.chapters.map(c => c.sourceUrl));
 
-      // Find all raw chapters that are not yet translated and not pending
+      // Find the highest chapter number that has been translated.
+      const maxTranslatedNum = book.chapters.reduce((max, chap) => {
+        const num = parseInt(chap.title.match(/\d+/)?.[0] || 0, 10);
+        return num > max ? num : max;
+      }, 0);
+
+      logToPanel('info', `Highest translated chapter is ${maxTranslatedNum}. Looking for the next one.`);
+
+      // Find all untranslated raw chapters, sort them by number.
       const untranslatedRawChapters = book.rawChapterData
         .filter(c => !translatedUrls.has(c.sourceUrl) && c.translationStatus !== 'pending')
-        .map(c => ({ ...c, chapterNumber: parseInt(c.title.match(/(\d+)/)?.[0] || 0, 10) })) // Add chapter number for sorting
-        .sort((a, b) => a.chapterNumber - b.chapterNumber); // Sort by chapter number
+        .map(c => ({ ...c, chapterNumber: parseInt(c.title.match(/(\d+)/)?.[0] || 0, 10) }))
+        .sort((a, b) => a.chapterNumber - b.chapterNumber);
 
-      if (untranslatedRawChapters.length > 0) {
-        // The next chapter to translate is the first one in the sorted list
-        const nextToTranslate = untranslatedRawChapters[0];
+      // Find the first chapter in the sorted list that is greater than the max translated one.
+      const nextToTranslate = untranslatedRawChapters.find(c => c.chapterNumber > maxTranslatedNum);
+
+      if (nextToTranslate) {
+        logToPanel('info', `Found next chapter to translate: #${nextToTranslate.chapterNumber} "${nextToTranslate.title}"`);
         handleStartTranslation(appData.activeBook, nextToTranslate);
       } else {
-        logToPanel('info', 'All available raw chapters have been translated or are pending.');
+        // If no chapter is found after the max, maybe there's a hole to fill.
+        // Fallback to the original logic: just take the first untranslated one.
+        if (untranslatedRawChapters.length > 0) {
+          logToPanel('warning', `Could not find a chapter after #${maxTranslatedNum}. Falling back to the lowest available untranslated chapter.`);
+          const fallbackChapter = untranslatedRawChapters[0];
+          handleStartTranslation(appData.activeBook, fallbackChapter);
+        } else {
+          logToPanel('info', 'All available raw chapters have been translated or are pending.');
+        }
       }
     }
   };

@@ -117,6 +117,7 @@ function startServer(dialog) {
             // Also create the subdirectories
             await fsp.mkdir(path.join(newBookPath, 'chapters_raw'), { recursive: true });
             await fsp.mkdir(path.join(newBookPath, 'chapters_translated'), { recursive: true });
+            await fsp.writeFile(path.join(newBookPath, 'settings.json'), JSON.stringify({}, null, 2), 'utf-8');
 
             console.log(`Created new book folder: ${newBookPath}`);
             res.status(201).json({ success: true, path: newBookPath });

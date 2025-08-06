@@ -230,7 +230,10 @@ const Translations = ({
                             {isEditing && (
                                 <button
                                     className="toc-item-delete"
-                                    onClick={() => onDeleteChapter(chapter.sourceUrl)}
+                                    onClick={(e) => {
+                                        e.stopPropagation(); // Prevents other click handlers from firing
+                                        onDeleteChapter(chapter.sourceUrl);
+                                    }}
                                     title="Delete Chapter"
                                 >
                                     <img src={DeleteIcon} alt="Delete" />
