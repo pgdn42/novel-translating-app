@@ -5,6 +5,8 @@ import WorldBuilding from './components/WorldBuilding';
 import LogPanel from './components/LogPanel';
 import NewBookModal from './components/NewBookModal';
 import BookSettingsModal from './components/BookSettingsModal';
+import TranslationComparisonModal from './components/TranslationComparisonModal';
+import WelcomeScreen from './components/WelcomeScreen'; // Import the new component
 import api from './api';
 import { onLog, logToPanel } from './logService';
 import LogIcon from './assets/log-icon.svg';
@@ -15,7 +17,7 @@ const App = () => {
   const [currentChapter, setCurrentChapter] = useState(null);
   const [currentChapterList, setCurrentChapterList] = useState([]);
   const [currentChapterIndex, setCurrentChapterIndex] = useState(-1);
-  const [sortOrder, setSortOrder] = useState('asc');
+  const [sortOrder, setSortOrder] = useState('desc');
 
   const [isLogVisible, setIsLogVisible] = useState(false);
   const [logWidth, setLogWidth] = useState(400);
@@ -24,6 +26,8 @@ const App = () => {
   const [wsStatus, setWsStatus] = useState('disconnected');
   const [isNewBookModalOpen, setIsNewBookModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [isComparisonModalOpen, setIsComparisonModalOpen] = useState(false);
+  const [comparisonData, setComparisonData] = useState(null);
 
   // Debounce the save function to avoid rapid-fire saves to electron-store
   const debouncedSave = useCallback(
@@ -46,6 +50,15 @@ const App = () => {
   }, []);
 
   const handleWebSocketMessage = useCallback((message) => {
+    // Add timestamp and source to incoming WS messages for consistent logging
+    if (!message.payload) message.payload = {};
+    if (!message.payload.timestamp) {
+      message.payload.timestamp = new Date().toISOString();
+    }
+    if (!message.payload.source) {
+      message.payload.source = 'websocket';
+    }
+
     handleNewLog(message);
 
     switch (message.type) {
@@ -55,10 +68,157 @@ const App = () => {
       case 'client-list-update':
         setConnectedClients(message.payload.connectedClients);
         break;
+      case 'save_raw_chapter_batch':
+        const { bookKey, chapters, nextChapterUrl } = message.payload;
+        setAppData(currentData => {
+          const newAppData = JSON.parse(JSON.stringify(currentData)); // Deep copy
+          const book = newAppData.books[bookKey];
+          if (!book) return currentData;
+
+          if (!book.rawChapterData) book.rawChapterData = [];
+
+          const existingUrls = new Set(book.rawChapterData.map(c => c.sourceUrl));
+          const newRawChapters = chapters.map(c => ({ ...c, translationStatus: 'untranslated' })).filter(c => !existingUrls.has(c.sourceUrl));
+
+          let changed = false;
+          if (newRawChapters.length > 0) {
+            book.rawChapterData.push(...newRawChapters);
+            api.saveRawChapters(bookKey, book.rawChapterData); // Persist to filesystem
+            logToPanel('success', `Saved ${newRawChapters.length} new raw chapters for "${bookKey}".`);
+            changed = true;
+          }
+
+          if (nextChapterUrl && book.settings.startUrl !== nextChapterUrl) {
+            book.settings.startUrl = nextChapterUrl;
+            logToPanel('info', `Updated next chapter URL for "${bookKey}".`);
+            changed = true;
+          }
+
+          return changed ? newAppData : currentData;
+        });
+        break;
+      case 'translation_complete':
+        handleTranslationComplete(message.payload);
+        break;
       default:
         break;
     }
   }, [handleNewLog]);
+
+  const handleTranslationComplete = (payload) => {
+    const { bookKey, newChapter, newGlossaryEntries } = payload;
+
+    setAppData(currentData => {
+      const newAppData = JSON.parse(JSON.stringify(currentData));
+      const book = newAppData.books[bookKey];
+      if (!book) return currentData;
+
+      // Find the original raw chapter and mark it as completed
+      const rawChapter = book.rawChapterData?.find(c => c.sourceUrl === newChapter.sourceUrl);
+      if (rawChapter) {
+        rawChapter.translationStatus = 'completed';
+        api.saveRawChapters(bookKey, book.rawChapterData);
+      }
+
+      // Check if this is a re-translation
+      const existingChapterIndex = book.chapters.findIndex(c => c.sourceUrl === newChapter.sourceUrl);
+      if (existingChapterIndex !== -1) {
+        // It's a re-translation, open comparison modal
+        setComparisonData({
+          bookKey,
+          oldChapter: book.chapters[existingChapterIndex],
+          newChapter,
+          newGlossaryEntries
+        });
+        setIsComparisonModalOpen(true);
+        return newAppData; // Don't save yet
+      } else {
+        // It's a brand new translation
+        book.chapters.push(newChapter);
+        Object.assign(book.glossary, newGlossaryEntries); // Merge glossary
+        logToPanel('success', `New translation for "${newChapter.title}" saved.`);
+      }
+
+      return newAppData;
+    });
+  };
+
+  const handleAcceptComparison = () => {
+    if (!comparisonData) return;
+    const { bookKey, newChapter, newGlossaryEntries } = comparisonData;
+
+    setAppData(currentData => {
+      const newAppData = JSON.parse(JSON.stringify(currentData));
+      const book = newAppData.books[bookKey];
+      if (!book) return currentData;
+
+      // Find and replace the old chapter
+      const chapterIndex = book.chapters.findIndex(c => c.sourceUrl === newChapter.sourceUrl);
+      if (chapterIndex !== -1) {
+        book.chapters[chapterIndex] = newChapter;
+      }
+
+      // Merge new glossary entries
+      Object.assign(book.glossary, newGlossaryEntries);
+
+      logToPanel('success', `Re-translation for "${newChapter.title}" accepted and saved.`);
+      return newAppData;
+    });
+
+    setIsComparisonModalOpen(false);
+    setComparisonData(null);
+  };
+
+  const handleStartTranslation = (bookKey, chapterToTranslate, isRetranslation = false) => {
+    const book = appData.books[bookKey];
+    if (!book || !chapterToTranslate) return;
+
+    if (!isRetranslation) {
+      logToPanel('info', `Starting translation for: ${chapterToTranslate.title}`);
+    } else {
+      logToPanel('info', `Starting re-translation for: ${chapterToTranslate.title}`);
+    }
+
+    // Generate chapter-specific glossary
+    const chapterGlossary = {};
+    for (const term in book.glossary) {
+      if (chapterToTranslate.sourceContent.includes(term)) {
+        chapterGlossary[term] = book.glossary[term];
+      }
+    }
+
+    // Construct the prompt
+    const prompt = `Translate the following chapter.
+    
+    Chapter-specific Glossary:
+    ${JSON.stringify(chapterGlossary, null, 2)}
+    
+    Raw Chapter Text:
+    ${chapterToTranslate.sourceContent}
+    `;
+
+    api.sendWebSocketMessage({
+      type: 'start_translation',
+      payload: {
+        bookKey,
+        prompt,
+        sourceUrl: chapterToTranslate.sourceUrl,
+      }
+    });
+
+    if (!isRetranslation) {
+      // Mark raw chapter as pending
+      setAppData(currentData => {
+        const newAppData = { ...currentData };
+        const rawChapter = newAppData.books[bookKey]?.rawChapterData?.find(c => c.sourceUrl === chapterToTranslate.sourceUrl);
+        if (rawChapter) {
+          rawChapter.translationStatus = 'pending';
+          api.saveRawChapters(bookKey, newAppData.books[bookKey].rawChapterData);
+        }
+        return newAppData;
+      });
+    }
+  };
 
   useEffect(() => {
     api.connectWebSocket(handleWebSocketMessage);
@@ -69,19 +229,26 @@ const App = () => {
         const data = await api.getStorage('novelNavigatorData');
         const loadedData = data.novelNavigatorData || { activeBook: null, books: {} };
         setAppData(loadedData);
-        if (Object.keys(loadedData.books).length === 0) {
-          setIsNewBookModalOpen(true);
-        }
       } catch (error) {
         console.error("Failed to fetch initial data:", error);
         setAppData({ activeBook: null, books: {} });
-        setIsNewBookModalOpen(true);
       }
     };
     fetchData();
 
     return () => unsubscribe();
   }, [handleWebSocketMessage, handleNewLog]);
+
+  // New effect to ensure the server knows the books directory on startup
+  useEffect(() => {
+    const setServerPath = async () => {
+      const data = await api.getStorage('booksDirectoryPath');
+      if (data.booksDirectoryPath) {
+        api.setBooksDirectory(data.booksDirectoryPath);
+      }
+    };
+    setServerPath();
+  }, []);
 
   const handleBookAction = (action) => {
     switch (action.type) {
@@ -91,7 +258,7 @@ const App = () => {
         setCurrentChapter(null);
         break;
       case 'create':
-        setIsNewBookModalOpen(true);
+        handleCreateBookFlow();
         break;
       case 'import':
         handleImportBooks();
@@ -101,6 +268,44 @@ const App = () => {
         break;
       default:
         break;
+    }
+  };
+
+  const handleSendCommand = (commandString) => {
+    logToPanel('info', `(local)> ${commandString}`);
+
+    const parts = commandString.trim().split(/\s+/);
+    const command = parts[0];
+    const targetClientName = parts[1];
+
+    const targetClient = connectedClients.find(c => c.name === targetClientName);
+    if (!targetClient) {
+      logToPanel('error', `Client "${targetClientName}" not found.`);
+      return;
+    }
+
+    if (command === '/message') {
+      const messageText = parts.slice(2).join(' ');
+      if (messageText) {
+        api.sendWebSocketMessage({
+          type: 'direct-message',
+          payload: {
+            targetClientId: targetClient.id,
+            message: messageText,
+          }
+        });
+      } else {
+        logToPanel('error', 'Cannot send an empty message.');
+      }
+    } else if (command === '/cancel') {
+      api.sendWebSocketMessage({
+        type: 'cancel-task',
+        payload: {
+          targetClientId: targetClient.id,
+        }
+      });
+    } else {
+      logToPanel('warning', `Unknown command: "${command}"`);
     }
   };
 
@@ -123,31 +328,65 @@ const App = () => {
     logToPanel('info', `Deleted book: "${bookNameToDelete}"`);
   };
 
-  const handleCreateBook = (bookName) => {
-    const newBookData = {
-      glossary: {},
-      chapters: [],
-      description: '',
-      settings: {},
-      worldBuilding: { categories: [] }
-    };
-    const newAppData = {
-      ...appData,
-      books: {
-        ...appData.books,
-        [bookName]: newBookData
-      },
-      activeBook: bookName
-    };
-    updateAppData(newAppData);
-    setIsNewBookModalOpen(false);
-    logToPanel('info', `Created new book: "${bookName}"`);
+  const handleCreateBookFlow = async () => {
+    let booksDirData = await api.getStorage('booksDirectoryPath');
+    let booksDir = booksDirData.booksDirectoryPath;
+
+    if (!booksDir) {
+      logToPanel('info', 'Please select a root directory to store your books.');
+      const { path } = await api.showDirectoryPicker();
+      if (path) {
+        await api.setBooksDirectory(path);
+        booksDir = path;
+      } else {
+        logToPanel('warning', 'Book creation cancelled. No directory selected.');
+        return; // User cancelled directory selection
+      }
+    }
+
+    setIsNewBookModalOpen(true);
+  };
+
+  const handleCreateBook = async (bookName) => {
+    try {
+      // First, tell the server to create the folder structure
+      await api.createNewBook(bookName);
+
+      // If successful, then update the app state
+      const newBookData = {
+        glossary: {},
+        chapters: [],
+        rawChapterData: [],
+        description: '',
+        settings: {},
+        worldBuilding: { categories: [] }
+      };
+      const newAppData = {
+        ...appData,
+        books: {
+          ...appData.books,
+          [bookName]: newBookData
+        },
+        activeBook: bookName
+      };
+      updateAppData(newAppData);
+      setIsNewBookModalOpen(false);
+      logToPanel('info', `Created new book: "${bookName}"`);
+    } catch (error) {
+      console.error("Failed to create book:", error);
+      logToPanel('error', `Failed to create book: ${error.message}`);
+      // Optionally, inform the user in the modal as well
+    }
   };
 
   const handleImportBooks = async () => {
     try {
       const { path } = await api.showDirectoryPicker();
       if (!path) return;
+
+      // This is now the primary point for setting the path on the server
+      await api.setBooksDirectory(path);
+      logToPanel('info', `Set book directory on server: ${path}`);
 
       logToPanel('info', `Starting import from folder: ${path}`);
       const importedBooks = await api.importBooks(path);
@@ -217,6 +456,24 @@ const App = () => {
     setCurrentView('translations');
   };
 
+  const handleDeleteChapter = (chapterSourceUrl) => {
+    if (!appData.activeBook) return;
+
+    setAppData(currentData => {
+      const newAppData = JSON.parse(JSON.stringify(currentData));
+      const book = newAppData.books[appData.activeBook];
+      const chapterIndex = book.chapters.findIndex(c => c.sourceUrl === chapterSourceUrl);
+
+      if (chapterIndex !== -1) {
+        const chapterTitle = book.chapters[chapterIndex].title;
+        book.chapters.splice(chapterIndex, 1);
+        logToPanel('info', `Deleted chapter: "${chapterTitle}"`);
+      }
+
+      return newAppData;
+    });
+  };
+
   const handlePreviousChapter = () => {
     const newIndex = sortOrder === 'desc' ? currentChapterIndex + 1 : currentChapterIndex - 1;
     if (newIndex >= 0 && newIndex < currentChapterList.length) {
@@ -225,11 +482,38 @@ const App = () => {
     }
   };
 
-  const handleNextChapter = () => {
+  const handleNextChapter = (shouldStartNewTranslation) => {
+    // Navigate to the next chapter in the reading sequence
     const newIndex = sortOrder === 'desc' ? currentChapterIndex - 1 : currentChapterIndex + 1;
     if (newIndex >= 0 && newIndex < currentChapterList.length) {
       setCurrentChapterIndex(newIndex);
       setCurrentChapter(currentChapterList[newIndex]);
+    }
+
+    // If the checkbox is checked, start translating the next untranslated chapter
+    if (shouldStartNewTranslation) {
+      const book = appData.books[appData.activeBook];
+      if (!book.rawChapterData || book.rawChapterData.length === 0) {
+        logToPanel('info', 'No raw chapters available to translate.');
+        return;
+      }
+
+      // Find all URLs of chapters that are already translated
+      const translatedUrls = new Set(book.chapters.map(c => c.sourceUrl));
+
+      // Find all raw chapters that are not yet translated and not pending
+      const untranslatedRawChapters = book.rawChapterData
+        .filter(c => !translatedUrls.has(c.sourceUrl) && c.translationStatus !== 'pending')
+        .map(c => ({ ...c, chapterNumber: parseInt(c.title.match(/(\d+)/)?.[0] || 0, 10) })) // Add chapter number for sorting
+        .sort((a, b) => a.chapterNumber - b.chapterNumber); // Sort by chapter number
+
+      if (untranslatedRawChapters.length > 0) {
+        // The next chapter to translate is the first one in the sorted list
+        const nextToTranslate = untranslatedRawChapters[0];
+        handleStartTranslation(appData.activeBook, nextToTranslate);
+      } else {
+        logToPanel('info', 'All available raw chapters have been translated or are pending.');
+      }
     }
   };
 
@@ -237,6 +521,23 @@ const App = () => {
     setCurrentChapter(null);
     setCurrentChapterIndex(-1);
     setCurrentChapterList([]);
+  };
+
+  const handleScrapeChapters = () => {
+    const activeBookData = appData.books[appData.activeBook];
+    if (!activeBookData || !activeBookData.settings || !activeBookData.settings.startUrl) {
+      logToPanel('error', 'No start URL configured for this book. Please add it in the book settings.');
+      return;
+    }
+    logToPanel('info', `Requesting chapter scrape for "${appData.activeBook}"...`);
+    api.sendWebSocketMessage({
+      type: 'start_bulk_scrape',
+      payload: {
+        bookKey: appData.activeBook,
+        settings: activeBookData.settings,
+        startUrl: activeBookData.settings.startUrl,
+      },
+    });
   };
 
   const handleGlossaryEntryUpdate = (originalTerm, updatedEntry) => {
@@ -299,10 +600,11 @@ const App = () => {
   };
 
   const activeBookData = appData.activeBook ? appData.books[appData.activeBook] : null;
+  const rawChapterCount = activeBookData?.rawChapterData?.length || 0;
 
   const renderView = () => {
     if (!appData.activeBook || !activeBookData) {
-      return <div className="p-4">Please select, create, or import a book to get started.</div>;
+      return <WelcomeScreen onCreate={handleCreateBookFlow} onImport={handleImportBooks} />;
     }
 
     switch (currentView) {
@@ -313,10 +615,14 @@ const App = () => {
           books={Object.keys(appData.books)}
           activeBook={appData.activeBook}
           chapters={activeBookData.chapters || []}
+          rawChapterCount={rawChapterCount}
           bookDescription={activeBookData.description || ''}
           onDescriptionChange={handleDescriptionChange}
           onBookTitleChange={handleBookTitleChange}
           onChapterSelect={handleChapterSelect}
+          onDeleteChapter={handleDeleteChapter}
+          onScrapeChapters={handleScrapeChapters}
+          onStartTranslation={(...args) => handleStartTranslation(appData.activeBook, ...args)}
           sortOrder={sortOrder}
           setSortOrder={setSortOrder}
           onOpenSettings={() => setIsSettingsModalOpen(true)}
@@ -352,6 +658,14 @@ const App = () => {
           onSave={handleSaveSettings}
         />
       )}
+      {isComparisonModalOpen && (
+        <TranslationComparisonModal
+          isOpen={isComparisonModalOpen}
+          onClose={() => setIsComparisonModalOpen(false)}
+          onAccept={handleAcceptComparison}
+          comparisonData={comparisonData}
+        />
+      )}
       <div className="main-view" style={{ right: isLogVisible ? `${logWidth}px` : '0' }}>
         <nav className="nav-bar">
           <div className="nav-buttons">
@@ -378,6 +692,7 @@ const App = () => {
           logs={logMessages}
           clients={connectedClients}
           status={wsStatus}
+          onSendCommand={handleSendCommand}
         />
       )}
     </div>

@@ -51,7 +51,7 @@ const connectWebSocket = (onMessage) => {
         onMessageCallback({ type: 'ws-status', payload: { status: 'connected' } });
         sendWebSocketMessage({
             type: 'identify',
-            payload: { clientName: 'Electron App', clientType: 'electron-app' }
+            payload: { clientName: 'electron-app', clientType: 'electron-app' }
         });
     };
 
@@ -92,8 +92,11 @@ export default {
     // HTTP methods
     getStorage: (key) => request(`/storage/${key}`),
     setStorage: (key, value) => request('/storage', { method: 'POST', body: { key, value } }),
+    setBooksDirectory: (path) => request('/fs/set-books-directory', { method: 'POST', body: { path } }),
     showDirectoryPicker: () => request('/fs/show-directory-picker'),
     importBooks: (booksDirPath) => request('/fs/import-books', { method: 'POST', body: { booksDirPath } }),
+    saveRawChapters: (bookName, rawChapters) => request('/fs/save-raw-chapters', { method: 'POST', body: { bookName, rawChapters } }),
+    createNewBook: (bookName) => request('/fs/create-book', { method: 'POST', body: { bookName } }),
     // WebSocket methods
     connectWebSocket,
     sendWebSocketMessage,

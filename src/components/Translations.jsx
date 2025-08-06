@@ -10,10 +10,14 @@ const Translations = ({
     books,
     activeBook,
     chapters,
+    rawChapterCount,
     bookDescription,
     onDescriptionChange,
     onBookTitleChange,
     onChapterSelect,
+    onDeleteChapter,
+    onScrapeChapters,
+    onStartTranslation,
     sortOrder,
     setSortOrder,
     onOpenSettings,
@@ -116,6 +120,7 @@ const Translations = ({
             onBack={onReturnToTOC}
             onPrevious={onPreviousChapter}
             onNext={onNextChapter}
+            onRetranslate={() => onStartTranslation(currentChapter, true)}
             hasPrevious={hasPrevious}
             hasNext={hasNext}
         />;
@@ -189,26 +194,48 @@ const Translations = ({
             <hr className="stylish-separator" />
 
             <div className="toc-section-header">
-                <h2>Table of Contents</h2>
-                <div className="toc-controls">
-                    <input
-                        type="search"
-                        placeholder="Search chapters..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                    />
-                    <button onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}>
-                        Sort {sortOrder === 'asc' ? 'Newest' : 'Oldest'} First
-                    </button>
+                <div className="toc-title-row">
+                    <div className="toc-title-area">
+                        <h2>Table of Contents</h2>
+                        <span className="raw-chapter-count">({rawChapterCount} raw)</span>
+                    </div>
+                </div>
+                <div className="toc-controls-row">
+                    <div className="toc-controls left">
+                        <input
+                            type="search"
+                            placeholder="Search chapters..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                        />
+                        <button onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}>
+                            Sort {sortOrder === 'asc' ? 'Newest' : 'Oldest'} First
+                        </button>
+                    </div>
+                    <div className="toc-controls right">
+                        <button onClick={onScrapeChapters} className="btn-secondary">Scrape Chapters</button>
+                    </div>
                 </div>
             </div>
+
 
             <div className="toc-list">
                 {filteredChapters.length > 0 ? (
                     filteredChapters.map((chapter, index) => (
-                        <div key={chapter.originalIndex} className="toc-item" onClick={() => onChapterSelect(chapter, filteredChapters, index)}>
-                            <span className="toc-item-number">Ch. {chapter.chapterNumber}</span>
-                            <span className="toc-item-title">{chapter.title}</span>
+                        <div key={chapter.originalIndex} className="toc-item-wrapper">
+                            <div className="toc-item" onClick={() => onChapterSelect(chapter, filteredChapters, index)}>
+                                <span className="toc-item-number">Ch. {chapter.chapterNumber}</span>
+                                <span className="toc-item-title">{chapter.title}</span>
+                            </div>
+                            {isEditing && (
+                                <button
+                                    className="toc-item-delete"
+                                    onClick={() => onDeleteChapter(chapter.sourceUrl)}
+                                    title="Delete Chapter"
+                                >
+                                    <img src={DeleteIcon} alt="Delete" />
+                                </button>
+                            )}
                         </div>
                     ))
                 ) : (

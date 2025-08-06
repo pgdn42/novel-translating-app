@@ -59,9 +59,71 @@ function startServer(dialog) {
     });
 
     // --- Filesystem Endpoints ---
+    app.post('/fs/set-books-directory', (req, res) => {
+        const { path } = req.body;
+        if (path) {
+            store.set('booksDirectoryPath', path);
+            res.status(200).json({ success: true });
+        } else {
+            res.status(400).json({ error: 'A valid path is required.' });
+        }
+    });
+
     app.get('/fs/show-directory-picker', async (req, res) => {
         const { canceled, filePaths } = await dialog.showOpenDialog({ properties: ['openDirectory'] });
         res.json({ path: (canceled || !filePaths.length) ? null : filePaths[0] });
+    });
+
+    app.post('/fs/save-raw-chapters', async (req, res) => {
+        const { bookName, rawChapters } = req.body;
+        const booksDirPath = store.get('booksDirectoryPath');
+        if (!booksDirPath || !bookName) {
+            return res.status(400).json({ error: 'Missing book directory path or book name. Please import a book folder first to set the directory.' });
+        }
+
+        const bookPath = path.join(booksDirPath, bookName);
+        const rawChaptersPath = path.join(bookPath, 'chapters_raw');
+        const filePath = path.join(rawChaptersPath, '_raw_data.json');
+
+        try {
+            await fsp.mkdir(rawChaptersPath, { recursive: true });
+            await fsp.writeFile(filePath, JSON.stringify(rawChapters, null, 2), 'utf-8');
+            res.status(200).json({ success: true });
+        } catch (error) {
+            console.error(`Failed to save raw chapters for ${bookName}:`, error);
+            res.status(500).json({ error: 'Failed to write raw chapters to disk.' });
+        }
+    });
+
+    app.post('/fs/create-book', async (req, res) => {
+        const { bookName } = req.body;
+        const booksDirPath = store.get('booksDirectoryPath');
+
+        if (!booksDirPath) {
+            return res.status(400).json({ error: 'Books directory path is not set.' });
+        }
+        if (!bookName) {
+            return res.status(400).json({ error: 'Book name is required.' });
+        }
+
+        const newBookPath = path.join(booksDirPath, bookName);
+
+        try {
+            if (fs.existsSync(newBookPath)) {
+                return res.status(409).json({ error: `A book folder named "${bookName}" already exists.` });
+            }
+
+            await fsp.mkdir(newBookPath, { recursive: true });
+            // Also create the subdirectories
+            await fsp.mkdir(path.join(newBookPath, 'chapters_raw'), { recursive: true });
+            await fsp.mkdir(path.join(newBookPath, 'chapters_translated'), { recursive: true });
+
+            console.log(`Created new book folder: ${newBookPath}`);
+            res.status(201).json({ success: true, path: newBookPath });
+        } catch (error) {
+            console.error(`Failed to create book folder for ${bookName}:`, error);
+            res.status(500).json({ error: 'Failed to create book folder on disk.' });
+        }
     });
 
     app.post('/fs/import-books', async (req, res) => {
@@ -70,17 +132,29 @@ function startServer(dialog) {
             return res.status(400).json({ error: 'Directory path is required.' });
         }
 
+        // Save the path for future file operations
+        store.set('booksDirectoryPath', booksDirPath);
+
         const importedBooks = {};
         try {
             const bookFolders = await fsp.readdir(booksDirPath, { withFileTypes: true });
             for (const bookFolder of bookFolders.filter(d => d.isDirectory())) {
                 const bookName = bookFolder.name;
                 const bookPath = path.join(booksDirPath, bookName);
-                const bookData = { glossary: {}, chapters: [], description: '', settings: {}, worldBuilding: {} };
+                const bookData = { glossary: {}, chapters: [], rawChapterData: [], description: '', settings: {}, worldBuilding: {} };
 
                 try { bookData.description = await fsp.readFile(path.join(bookPath, 'description.txt'), 'utf-8'); } catch (e) { /* ignore */ }
                 try { bookData.settings = JSON.parse(await fsp.readFile(path.join(bookPath, 'settings.json'), 'utf-8')); } catch (e) { /* ignore */ }
                 try { bookData.worldBuilding = JSON.parse(await fsp.readFile(path.join(bookPath, 'world-building.json'), 'utf-8')); } catch (e) { /* ignore */ }
+
+                // --- Import Raw Chapters ---
+                const rawChaptersFilePath = path.join(bookPath, 'chapters_raw', '_raw_data.json');
+                if (fs.existsSync(rawChaptersFilePath)) {
+                    try {
+                        const rawData = await fsp.readFile(rawChaptersFilePath, 'utf-8');
+                        bookData.rawChapterData = JSON.parse(rawData);
+                    } catch (e) { console.error(`Failed to load raw chapters for ${bookName}:`, e); }
+                }
 
                 // --- NEW: Glossary Import Logic ---
                 const glossaryJsonPath = path.join(bookPath, 'glossary.json');
@@ -157,6 +231,16 @@ function startServer(dialog) {
         }
     };
 
+    const sendToElectronApp = (message) => {
+        const serializedMessage = JSON.stringify(message);
+        for (const client of clients.values()) {
+            // Only send to the main electron app, not other clients like the extension
+            if (client.type === 'electron-app' && client.ws.readyState === WebSocket.OPEN) {
+                client.ws.send(serializedMessage);
+            }
+        }
+    };
+
     const heartbeatInterval = setInterval(() => {
         for (const [clientId, client] of clients.entries()) {
             if (client.isAlive === false) {
@@ -174,12 +258,19 @@ function startServer(dialog) {
         clients.set(clientId, { ws, id: clientId, isAlive: true });
         console.log(`Client ${clientId} connected.`);
 
-        const broadcastClients = () => {
+        const broadcastClientsListToApp = () => {
             const connectedClients = Array.from(clients.values()).map(c => ({ id: c.id, name: c.name }));
-            broadcast({ type: 'client-list-update', payload: { connectedClients } });
+            sendToElectronApp({ type: 'client-list-update', payload: { connectedClients } });
         };
 
-        broadcastClients();
+        // Broadcast a generic connected message to all clients for logging purposes
+        broadcast({
+            type: 'client-connected',
+            payload: { clientId }
+        });
+
+        // Update the Electron app's client list
+        broadcastClientsListToApp();
 
         ws.on('pong', () => {
             const client = clients.get(clientId);
@@ -192,18 +283,64 @@ function startServer(dialog) {
             try {
                 const parsedMessage = JSON.parse(message);
                 if (!parsedMessage.payload) parsedMessage.payload = {};
-                parsedMessage.payload.clientId = clientId;
+                const senderClientId = parsedMessage.payload.clientId || clientId;
 
                 if (parsedMessage.type === 'identify') {
-                    const client = clients.get(clientId);
+                    const client = clients.get(senderClientId);
                     if (client) {
+                        // If the new client is a Chrome extension, remove any existing ones
+                        if (parsedMessage.payload.clientType === 'chrome-extension') {
+                            const clientsToRemove = [];
+                            for (const [id, existingClient] of clients.entries()) {
+                                if (existingClient.type === 'chrome-extension' && id !== senderClientId) {
+                                    existingClient.ws.terminate();
+                                    clientsToRemove.push(id);
+                                }
+                            }
+                            // Remove them from the map after iterating
+                            clientsToRemove.forEach(id => {
+                                clients.delete(id);
+                                console.log(`Removed old Chrome extension client: ${id}`);
+                            });
+                        }
+
                         client.name = parsedMessage.payload.clientName;
                         client.type = parsedMessage.payload.clientType;
-                        console.log(`Client ${clientId} identified as ${client.name}`);
-                        broadcastClients();
+                        console.log(`Client ${senderClientId} identified as ${client.name} (${client.type})`);
+                        broadcastClientsListToApp();
+                    }
+                } else if (parsedMessage.type === 'direct-message' || parsedMessage.type === 'cancel-task') {
+                    const targetClient = clients.get(parsedMessage.payload.targetClientId);
+                    if (targetClient && targetClient.ws.readyState === WebSocket.OPEN) {
+                        const messageToSend = {
+                            type: parsedMessage.type,
+                            payload: {
+                                ...parsedMessage.payload,
+                                source: clients.get(senderClientId)?.name || 'unknown-client'
+                            }
+                        };
+                        targetClient.ws.send(JSON.stringify(messageToSend));
+                    }
+                } else if (parsedMessage.type === 'start_bulk_scrape' || parsedMessage.type === 'start_translation') {
+                    const chromeExtension = Array.from(clients.values()).find(c => c.type === 'chrome-extension');
+                    if (chromeExtension && chromeExtension.ws.readyState === WebSocket.OPEN) {
+                        chromeExtension.ws.send(JSON.stringify(parsedMessage));
+                        console.log(`Forwarded '${parsedMessage.type}' to ${chromeExtension.name}`);
+                    } else {
+                        console.error('Chrome extension not connected. Cannot start task.');
+                        const electronApp = clients.get(senderClientId);
+                        if (electronApp) {
+                            electronApp.ws.send(JSON.stringify({
+                                type: 'log-message',
+                                payload: {
+                                    source: 'server-error',
+                                    text: `Command failed: Chrome extension is not connected.`
+                                }
+                            }));
+                        }
                     }
                 } else {
-                    // For other message types, broadcast them
+                    // For other message types (like translation_complete), broadcast them to all clients
                     broadcast(parsedMessage);
                 }
                 console.log('Received message:', parsedMessage);
@@ -213,11 +350,24 @@ function startServer(dialog) {
             }
         });
 
-        ws.on('close', () => {
+        ws.on('close', (code, reason) => {
             const client = clients.get(clientId);
-            console.log(`Client ${client ? client.name : clientId} disconnected.`);
+            const clientName = client ? (client.name || clientId) : clientId;
+            const reasonString = reason.toString() || 'Normal closure';
+            console.log(`Client ${clientName} disconnected. Reason: ${reasonString}`);
             clients.delete(clientId);
-            broadcastClients();
+
+            // Broadcast the disconnection event for logging
+            broadcast({
+                type: 'client-disconnected',
+                payload: {
+                    clientId: clientId,
+                    clientName: clientName,
+                    reason: reasonString
+                }
+            });
+            // Update the Electron app's client list
+            broadcastClientsListToApp();
         });
 
         ws.on('error', (error) => {

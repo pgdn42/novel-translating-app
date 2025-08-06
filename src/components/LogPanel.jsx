@@ -2,44 +2,22 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import LogEntry from './LogEntry';
 import ClientStatus from './ClientStatus';
 
-const LogPanel = ({ width, setWidth, logs, clients, status }) => {
+const LogPanel = ({ width, setWidth, logs, clients, status, onSendCommand }) => {
     const [isResizing, setIsResizing] = useState(false);
     const [clientStates, setClientStates] = useState({});
     const [isClientListCollapsed, setIsClientListCollapsed] = useState(false);
+    const [command, setCommand] = useState('');
     const logContainerRef = useRef(null);
 
     useEffect(() => {
-        const newClientStates = { ...clientStates };
-        let stateChanged = false;
-
+        // This logic now ONLY reflects the current state from the server.
+        // It does not try to remember disconnected clients, which fixes the duplication issue.
+        const newClientStates = {};
         clients.forEach(client => {
-            if (!newClientStates[client.id]) {
-                newClientStates[client.id] = { ...client, isConnected: true, lastPing: 0, lastPong: 0 };
-                stateChanged = true;
-            } else if (!newClientStates[client.id].isConnected) {
-                newClientStates[client.id].isConnected = true;
-                stateChanged = true;
-            }
-            // Update name if it changes
-            if (newClientStates[client.id].name !== client.name) {
-                newClientStates[client.id].name = client.name;
-                stateChanged = true;
-            }
+            newClientStates[client.id] = { ...client, isConnected: true };
         });
-
-        Object.keys(newClientStates).forEach(id => {
-            if (!clients.some(c => c.id === id) && newClientStates[id].isConnected) {
-                newClientStates[id].isConnected = false;
-                stateChanged = true;
-            }
-        });
-
-        const lastLog = logs[logs.length - 1];
-        if (stateChanged) {
-            setClientStates(newClientStates);
-        }
-
-    }, [clients, logs]);
+        setClientStates(newClientStates);
+    }, [clients]);
 
 
     const handleMouseDown = (e) => {
@@ -59,6 +37,13 @@ const LogPanel = ({ width, setWidth, logs, clients, status }) => {
     const handleMouseUp = useCallback(() => {
         setIsResizing(false);
     }, []);
+
+    const handleCommandKeyDown = (e) => {
+        if (e.key === 'Enter' && command.trim()) {
+            onSendCommand(command);
+            setCommand('');
+        }
+    };
 
     useEffect(() => {
         if (isResizing) {
@@ -97,27 +82,37 @@ const LogPanel = ({ width, setWidth, logs, clients, status }) => {
                     <h3>WebSocket Log</h3>
                     <p>Status: <span className={getStatusColor()}>{status}</span></p>
                     <div className="client-header" onClick={() => setIsClientListCollapsed(!isClientListCollapsed)}>
-                        <span>Clients ({clients.length})</span>
+                        <span>Clients ({Object.values(clientStates).filter(c => c.isConnected).length})</span>
                         <span className="log-caret">{isClientListCollapsed ? '▶' : '▼'}</span>
                     </div>
                     {!isClientListCollapsed && (
                         <ul className="client-list">
-                            {Object.entries(clientStates).map(([id, state]) => (
+                            {Object.values(clientStates).map(state => (
                                 <ClientStatus
-                                    key={id}
-                                    client={{ id, name: state.name }}
+                                    key={state.id}
+                                    client={{ id: state.id, name: state.name }}
                                     isConnected={state.isConnected}
-                                    lastPing={state.lastPing}
-                                    lastPong={state.lastPong}
                                 />
                             ))}
                         </ul>
                     )}
                 </div>
-                <div className="log-messages" ref={logContainerRef}>
-                    {logs.filter(log => log.type !== 'ping' && log.type !== 'pong').map((log, index) => (
-                        <LogEntry key={index} log={log} />
-                    ))}
+                <div className="log-messages-container">
+                    <div className="log-messages" ref={logContainerRef}>
+                        {logs.filter(log => log.type !== 'ping' && log.type !== 'pong').map((log, index) => (
+                            <LogEntry key={index} log={log} />
+                        ))}
+                    </div>
+                </div>
+                <div className="log-input-container">
+                    <input
+                        type="text"
+                        className="log-input"
+                        placeholder="Type a command... (e.g. /message ClientName text)"
+                        value={command}
+                        onChange={(e) => setCommand(e.target.value)}
+                        onKeyDown={handleCommandKeyDown}
+                    />
                 </div>
             </div>
             <div
