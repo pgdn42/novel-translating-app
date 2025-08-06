@@ -525,6 +525,20 @@ body {
   cursor: pointer;
 }
 
+.toc-controls button.btn-danger {
+  background-color: #e57373;
+}
+
+.toc-controls button.btn-danger:hover:not(:disabled) {
+  background-color: #ef5350;
+}
+
+.toc-controls button:disabled {
+  background-color: #3a3d44;
+  color: #777;
+  cursor: not-allowed;
+}
+
 .toc-list {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
@@ -624,7 +638,7 @@ body {
   background-color: #20232a;
   border-radius: 8px;
   padding: 15px;
-  height: 60vh;
+  height: 45vh;
   overflow-y: auto;
 }
 
@@ -729,6 +743,7 @@ body {
 
 .chapter-header {
   display: flex;
+  justify-content: space-between;
   align-items: center;
   margin-bottom: 1rem;
   padding-bottom: 1rem;
@@ -740,6 +755,10 @@ body {
   margin: 0;
   font-size: 1.5em;
   color: #61dafb;
+  /* Add padding to prevent text from touching the buttons on either side */
+  padding: 0 20px;
+  text-align: center;
+  flex-grow: 1; /* Allow the title to take up the available space */
 }
 
 .back-button {
@@ -749,12 +768,20 @@ body {
   padding: 8px 16px;
   border-radius: 6px;
   cursor: pointer;
-  margin-right: 1rem;
   font-size: 0.9em;
+  flex-shrink: 0; /* Prevent the button from shrinking */
 }
 
 .back-button:hover {
   background-color: #5f6368;
+}
+
+.retranslate-button {
+  flex-shrink: 0; /* Prevent the button from shrinking */
+}
+
+.retranslate-button img {
+  filter: invert(0.8);
 }
 
 /* New styles for centered content */
@@ -801,6 +828,12 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
+  margin-left: 15px; /* Add some space between the button and the checkbox */
+}
+
+.auto-translate-control label {
+  cursor: pointer;
+  user-select: none; /* Prevent text selection on click */
 }
 
 .chapter-nav button {

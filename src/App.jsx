@@ -246,6 +246,11 @@ const App = () => {
       return newAppData;
     });
 
+    // If the accepted chapter is the one currently being viewed, update it immediately.
+    if (currentChapter && currentChapter.sourceUrl === newChapter.sourceUrl) {
+      setCurrentChapter(newChapter);
+    }
+
     setIsComparisonModalOpen(false);
     setComparisonData(null);
   };
@@ -255,15 +260,28 @@ const App = () => {
     const book = appData.books[bookKey];
     if (!book || !chapterToTranslate) return;
 
-    if (!isRetranslation) {
-      logToPanel('info', `Starting translation for: ${chapterToTranslate.title}`);
-    } else {
+    let sourceContent = chapterToTranslate.sourceContent;
+
+    if (isRetranslation) {
       logToPanel('info', `Starting re-translation for: ${chapterToTranslate.title}`);
+      const rawChapter = book.rawChapterData?.find(c => c.sourceUrl === chapterToTranslate.sourceUrl);
+      if (!rawChapter) {
+        logToPanel('error', `Could not find raw chapter data for re-translation of "${chapterToTranslate.title}".`);
+        return;
+      }
+      sourceContent = rawChapter.sourceContent;
+    } else {
+      logToPanel('info', `Starting translation for: ${chapterToTranslate.title}`);
+    }
+
+    if (!sourceContent) {
+      logToPanel('error', `No source content found for chapter "${chapterToTranslate.title}".`);
+      return;
     }
 
     const chapterGlossary = {};
     for (const term in book.glossary) {
-      if (chapterToTranslate.sourceContent.includes(term)) {
+      if (sourceContent.includes(term)) {
         chapterGlossary[term] = book.glossary[term];
       }
     }
@@ -274,7 +292,7 @@ const App = () => {
     ${JSON.stringify(chapterGlossary, null, 2)}
     
     Raw Chapter Text:
-    ${chapterToTranslate.sourceContent}
+    ${sourceContent}
     `;
 
     api.sendWebSocketMessage({
@@ -305,28 +323,51 @@ const App = () => {
 
     const fetchData = async () => {
       try {
-        const data = await api.getStorage('novelNavigatorData');
-        const loadedData = data.novelNavigatorData || { activeBook: null, books: {} };
-        setAppData(loadedData);
+        // Load cached state first to get activeBook, etc.
+        const storedAppData = await api.getStorage('novelNavigatorData');
+        const cachedData = storedAppData.novelNavigatorData || { activeBook: null, books: {} };
+
+        // Then, check for the books directory, which is the source of truth
+        const pathData = await api.getStorage('booksDirectoryPath');
+        const booksDir = pathData.booksDirectoryPath;
+
+        if (booksDir) {
+          logToPanel('info', `Loading books from saved directory: ${booksDir}`);
+          // Set directory on server in case it's not set
+          await api.setBooksDirectory(booksDir);
+
+          const booksFromFS = await api.importBooks(booksDir);
+
+          const finalData = {
+            ...cachedData,
+            books: booksFromFS,
+          };
+
+          // Validate that the cached activeBook still exists
+          if (finalData.activeBook && !booksFromFS[finalData.activeBook]) {
+            logToPanel('warning', `Cached active book "${finalData.activeBook}" not found. Resetting.`);
+            finalData.activeBook = Object.keys(booksFromFS)[0] || null;
+          }
+
+          setAppData(finalData);
+
+        } else {
+          // If no directory is set, just rely on the cache
+          logToPanel('info', 'No book directory set. Loading from cache.');
+          setAppData(cachedData);
+        }
       } catch (error) {
         console.error("Failed to fetch initial data:", error);
+        logToPanel('error', `Failed to fetch initial data: ${error.message}`);
+        // Fallback to a clean state
         setAppData({ activeBook: null, books: {} });
       }
     };
+
     fetchData();
 
     return () => unsubscribe();
   }, [handleWebSocketMessage, handleNewLog]);
-
-  useEffect(() => {
-    const setServerPath = async () => {
-      const data = await api.getStorage('booksDirectoryPath');
-      if (data.booksDirectoryPath) {
-        api.setBooksDirectory(data.booksDirectoryPath);
-      }
-    };
-    setServerPath();
-  }, []);
 
   const handleBookAction = (action) => {
     switch (action.type) {
