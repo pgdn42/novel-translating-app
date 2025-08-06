@@ -720,14 +720,17 @@ body {
 .glossary-list {
   flex-grow: 1;
   overflow-y: auto;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-  gap: 15px;
-  padding-top: 5px; /* Add space for hover effect */
-  padding-right: 10px; /* Add space for scrollbar */
+  position: relative;
+  /* Add padding for scrollbar on the right and to prevent hover effects from being clipped at the top */
+  padding-top: 5px;
+  padding-right: 10px;
+  /* Make container a bit wider to account for scrollbar padding */
+  box-sizing: content-box;
 }
 
 .glossary-item {
+  /* All layout properties (top, left, width, height) are now set by inline styles from JS */
+  box-sizing: border-box; /* Crucial for correct width/height calculation */
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -737,8 +740,6 @@ body {
   border-radius: 8px;
   cursor: pointer;
   transition: background-color 0.2s, border-color 0.2s, transform 0.2s;
-  height: 80px;
-  box-sizing: border-box;
 }
 
 .glossary-item:hover {

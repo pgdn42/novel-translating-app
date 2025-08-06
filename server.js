@@ -18,11 +18,32 @@ function startServer(dialog) {
     app.use(express.json({ limit: '50mb' }));
 
     // --- Utility Functions ---
-    const sanitizeFileName = (name) => {
-        if (typeof name !== 'string') return 'untitled';
-        // eslint-disable-next-line no-control-regex
-        return name.replace(/[\\/?%*:|"<>]/g, '-').replace(/[\x00-\x1F\x7F]/g, '').trim().replace(/[\. ]+$/, '').substring(0, 200) || 'untitled';
+    const parseGlossaryEntry = (entryText) => {
+        const lines = entryText.split('\n');
+        const entry = {
+            term: '', pinyin: '', category: '', chosenRendition: '',
+            decisionRationale: '', excludedRendition: '', excludedRationale: '', notes: ''
+        };
+        lines.forEach(line => {
+            const [key, ...valueParts] = line.split(': ');
+            const value = valueParts.join(': ').trim();
+            if (key && value) {
+                const normalizedKey = key.trim().toLowerCase().replace(/_/g, '');
+                switch (normalizedKey) {
+                    case 'term': entry.term = value; break;
+                    case 'pinyin': entry.pinyin = value; break;
+                    case 'category': entry.category = value; break;
+                    case 'chosenrendition': entry.chosenRendition = value; break;
+                    case 'decisionrationale': entry.decisionRationale = value; break;
+                    case 'excludedrendition': entry.excludedRendition = value; break;
+                    case 'excludedrationale': entry.excludedRationale = value; break;
+                    case 'notes': entry.notes = value; break;
+                }
+            }
+        });
+        return entry;
     };
+
 
     // --- API Endpoints ---
     app.get('/storage/:key', (req, res) => {
@@ -61,15 +82,42 @@ function startServer(dialog) {
                 try { bookData.settings = JSON.parse(await fsp.readFile(path.join(bookPath, 'settings.json'), 'utf-8')); } catch (e) { /* ignore */ }
                 try { bookData.worldBuilding = JSON.parse(await fsp.readFile(path.join(bookPath, 'world-building.json'), 'utf-8')); } catch (e) { /* ignore */ }
 
-                try {
-                    const glossaryContent = await fsp.readFile(path.join(bookPath, 'glossary.txt'), 'utf-8');
-                    glossaryContent.split('\n---\n').forEach(block => {
-                        if (block.trim()) {
-                            const match = block.match(/Term:\s*(.*)/);
-                            if (match && match[1]) bookData.glossary[match[1].trim()] = block.trim();
+                // --- NEW: Glossary Import Logic ---
+                const glossaryJsonPath = path.join(bookPath, 'glossary.json');
+                const glossaryTxtPath = path.join(bookPath, 'glossary.txt');
+
+                if (fs.existsSync(glossaryJsonPath)) {
+                    // 1. Prioritize glossary.json
+                    const glossaryContent = await fsp.readFile(glossaryJsonPath, 'utf-8');
+                    const glossaryArray = JSON.parse(glossaryContent);
+                    // Convert array of objects to an object keyed by term
+                    glossaryArray.forEach(entry => {
+                        if (entry && entry.term) {
+                            bookData.glossary[entry.term] = entry;
                         }
                     });
-                } catch (e) { /* ignore */ }
+                } else if (fs.existsSync(glossaryTxtPath)) {
+                    // 2. Fallback to glossary.txt, convert it, and save as .json
+                    const glossaryContent = await fsp.readFile(glossaryTxtPath, 'utf-8');
+                    glossaryContent.split('\n---\n').forEach(block => {
+                        if (block.trim()) {
+                            const entryObject = parseGlossaryEntry(block.trim());
+                            if (entryObject.term) {
+                                bookData.glossary[entryObject.term] = entryObject;
+                            }
+                        }
+                    });
+                    // Convert the glossary object to a JSON array and save it
+                    try {
+                        const glossaryArray = Object.values(bookData.glossary);
+                        await fsp.writeFile(glossaryJsonPath, JSON.stringify(glossaryArray, null, 2), 'utf-8');
+                        console.log(`Converted glossary.txt to glossary.json for book: ${bookName}`);
+                    } catch (writeErr) {
+                        console.error(`Could not write glossary.json for book: ${bookName}`, writeErr);
+                    }
+                }
+                // --- END: Glossary Import Logic ---
+
 
                 const chaptersPath = path.join(bookPath, 'chapters_translated');
                 const chapterMap = new Map();
@@ -118,7 +166,6 @@ function startServer(dialog) {
             }
             client.isAlive = false;
             client.ws.ping();
-            broadcast({ type: 'ping', payload: { clientId, timestamp: new Date().toISOString() } });
         }
     }, 10000);
 
@@ -155,9 +202,6 @@ function startServer(dialog) {
                         console.log(`Client ${clientId} identified as ${client.name}`);
                         broadcastClients();
                     }
-                } else if (parsedMessage.type === 'pong') {
-                    // This is a pong for the UI, broadcast it back
-                    broadcast(parsedMessage);
                 } else {
                     // For other message types, broadcast them
                     broadcast(parsedMessage);

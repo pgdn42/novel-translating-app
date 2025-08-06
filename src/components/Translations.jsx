@@ -1,10 +1,33 @@
 import React, { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import { logToPanel } from '../logService';
+import ChapterView from './ChapterView'; // Import ChapterView
 import DeleteIcon from '../assets/delete-icon.svg';
 import SettingsIcon from '../assets/settings-icon.svg';
 import EditIcon from '../assets/edit-icon.svg';
+import ImportIcon from '../assets/import-icon.svg';
 
-const Translations = ({ books, activeBook, chapters, bookDescription, onDescriptionChange, onBookTitleChange, onChapterSelect, sortOrder, setSortOrder, onOpenSettings, onDeleteBook, onBookSelect }) => {
+const Translations = ({
+    books,
+    activeBook,
+    chapters,
+    bookDescription,
+    onDescriptionChange,
+    onBookTitleChange,
+    onChapterSelect,
+    sortOrder,
+    setSortOrder,
+    onOpenSettings,
+    onDeleteBook,
+    onBookSelect,
+    onImportBooks,
+    // New props for handling chapter view
+    currentChapter,
+    currentChapterList,
+    currentChapterIndex,
+    onReturnToTOC,
+    onPreviousChapter,
+    onNextChapter
+}) => {
     const [description, setDescription] = useState(bookDescription || '');
     const [title, setTitle] = useState(activeBook || '');
     const [sortedChapters, setSortedChapters] = useState([]);
@@ -85,6 +108,20 @@ const Translations = ({ books, activeBook, chapters, bookDescription, onDescript
         chapter.title.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
+    if (currentChapter) {
+        const hasPrevious = sortOrder === 'asc' ? currentChapterIndex > 0 : currentChapterIndex < currentChapterList.length - 1;
+        const hasNext = sortOrder === 'asc' ? currentChapterIndex < currentChapterList.length - 1 : currentChapterIndex > 0;
+        return <ChapterView
+            chapter={currentChapter}
+            onBack={onReturnToTOC}
+            onPrevious={onPreviousChapter}
+            onNext={onNextChapter}
+            hasPrevious={hasPrevious}
+            hasNext={hasNext}
+        />;
+    }
+
+
     return (
         <div className="translations-view">
             <div className="book-header">
@@ -116,6 +153,9 @@ const Translations = ({ books, activeBook, chapters, bookDescription, onDescript
                     </div>
                 </div>
                 <div className="book-header-controls">
+                    <button onClick={onImportBooks} className="icon-button" title="Import Books">
+                        <img src={ImportIcon} alt="Import" />
+                    </button>
                     <button onClick={() => setIsEditing(!isEditing)} className="icon-button" title={isEditing ? "Finish Editing" : "Edit Title & Description"}>
                         <img src={EditIcon} alt="Edit" />
                     </button>

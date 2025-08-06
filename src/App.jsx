@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback } from 'react';
 import Glossary from './components/Glossary';
 import Translations from './components/Translations';
 import WorldBuilding from './components/WorldBuilding';
-import ChapterView from './components/ChapterView';
 import LogPanel from './components/LogPanel';
 import NewBookModal from './components/NewBookModal';
 import BookSettingsModal from './components/BookSettingsModal';
@@ -25,6 +24,22 @@ const App = () => {
   const [wsStatus, setWsStatus] = useState('disconnected');
   const [isNewBookModalOpen, setIsNewBookModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+
+  // Debounce the save function to avoid rapid-fire saves to electron-store
+  const debouncedSave = useCallback(
+    debounce((data) => {
+      api.setStorage('novelNavigatorData', data).catch(err => {
+        console.error("Failed to save data:", err);
+        logToPanel('error', 'Failed to save application data.');
+      });
+    }, 1000),
+    []
+  );
+
+  const updateAppData = (newAppData) => {
+    setAppData(newAppData);
+    debouncedSave(newAppData);
+  };
 
   const handleNewLog = useCallback((log) => {
     setLogMessages(prev => [...prev, log].slice(-100));
@@ -68,12 +83,11 @@ const App = () => {
     return () => unsubscribe();
   }, [handleWebSocketMessage, handleNewLog]);
 
-  const handleBookAction = async (action) => {
+  const handleBookAction = (action) => {
     switch (action.type) {
       case 'select':
         const newAppData = { ...appData, activeBook: action.payload };
-        setAppData(newAppData);
-        await api.setStorage('novelNavigatorData', newAppData);
+        updateAppData(newAppData);
         setCurrentChapter(null);
         break;
       case 'create':
@@ -90,8 +104,7 @@ const App = () => {
     }
   };
 
-  const handleDeleteBook = async (bookNameToDelete) => {
-    // A simple confirmation dialog
+  const handleDeleteBook = (bookNameToDelete) => {
     const isConfirmed = window.confirm(`Are you sure you want to delete the book "${bookNameToDelete}"? This action cannot be undone.`);
     if (!isConfirmed) {
       return;
@@ -106,12 +119,11 @@ const App = () => {
       activeBook: appData.activeBook === bookNameToDelete ? null : appData.activeBook,
     };
 
-    setAppData(newAppData);
-    await api.setStorage('novelNavigatorData', newAppData);
+    updateAppData(newAppData);
     logToPanel('info', `Deleted book: "${bookNameToDelete}"`);
   };
 
-  const handleCreateBook = async (bookName) => {
+  const handleCreateBook = (bookName) => {
     const newBookData = {
       glossary: {},
       chapters: [],
@@ -127,8 +139,7 @@ const App = () => {
       },
       activeBook: bookName
     };
-    setAppData(newAppData);
-    await api.setStorage('novelNavigatorData', newAppData);
+    updateAppData(newAppData);
     setIsNewBookModalOpen(false);
     logToPanel('info', `Created new book: "${bookName}"`);
   };
@@ -150,8 +161,7 @@ const App = () => {
 
       if (importedCount > 0) {
         const newAppData = { ...appData, books: newBooks };
-        setAppData(newAppData);
-        await api.setStorage('novelNavigatorData', newAppData);
+        updateAppData(newAppData);
         logToPanel('success', `Successfully imported ${importedCount} book(s).`);
       } else {
         logToPanel('warning', 'No new books were found in the selected folder.');
@@ -163,11 +173,10 @@ const App = () => {
     }
   };
 
-  const handleBookTitleChange = async (oldName, newName) => {
+  const handleBookTitleChange = (oldName, newName) => {
     if (!newName || newName === oldName) return;
     if (appData.books[newName]) {
       logToPanel('error', `A book named "${newName}" already exists.`);
-
       setAppData({ ...appData });
       return;
     }
@@ -182,13 +191,11 @@ const App = () => {
       books: newBooks,
       activeBook: newName
     };
-
-    setAppData(newAppData);
-    await api.setStorage('novelNavigatorData', newAppData);
+    updateAppData(newAppData);
     logToPanel('info', `Renamed book from "${oldName}" to "${newName}"`);
   };
 
-  const handleDescriptionChange = async (newDescription) => {
+  const handleDescriptionChange = (newDescription) => {
     if (!appData.activeBook) return;
     const newAppData = {
       ...appData,
@@ -200,14 +207,14 @@ const App = () => {
         }
       }
     };
-    setAppData(newAppData);
-    await api.setStorage('novelNavigatorData', newAppData);
+    updateAppData(newAppData);
   }
 
   const handleChapterSelect = (chapter, chapterList, index) => {
     setCurrentChapter(chapter);
     setCurrentChapterList(chapterList);
     setCurrentChapterIndex(index);
+    setCurrentView('translations');
   };
 
   const handlePreviousChapter = () => {
@@ -226,31 +233,20 @@ const App = () => {
     }
   };
 
-
   const handleReturnToTOC = () => {
     setCurrentChapter(null);
     setCurrentChapterIndex(-1);
     setCurrentChapterList([]);
   };
 
-  const handleGlossaryEntryUpdate = async (originalTerm, updatedEntry) => {
+  const handleGlossaryEntryUpdate = (originalTerm, updatedEntry) => {
     if (!appData.activeBook) return;
-
     const newGlossary = { ...appData.books[appData.activeBook].glossary };
 
-    let newEntryString = `Term: ${updatedEntry.term}`;
-    if (updatedEntry.pinyin) newEntryString += `\nPinyin: ${updatedEntry.pinyin}`;
-    if (updatedEntry.category) newEntryString += `\nCategory: ${updatedEntry.category}`;
-    if (updatedEntry.chosenRendition) newEntryString += `\nChosen_Rendition: ${updatedEntry.chosenRendition}`;
-    if (updatedEntry.decisionRationale) newEntryString += `\nDecision_Rationale: ${updatedEntry.decisionRationale}`;
-    if (updatedEntry.excludedRendition) newEntryString += `\nExcluded_Rendition: ${updatedEntry.excludedRendition}`;
-    if (updatedEntry.excludedRationale) newEntryString += `\nExcluded_Rationale: ${updatedEntry.excludedRationale}`;
-    if (updatedEntry.notes) newEntryString += `\nNotes: ${updatedEntry.notes}`;
-
-    if (originalTerm !== updatedEntry.term) {
+    if (originalTerm && originalTerm !== updatedEntry.term) {
       delete newGlossary[originalTerm];
     }
-    newGlossary[updatedEntry.term] = newEntryString;
+    newGlossary[updatedEntry.term] = updatedEntry;
 
     const newAppData = {
       ...appData,
@@ -262,14 +258,12 @@ const App = () => {
         }
       }
     };
-    setAppData(newAppData);
-    await api.setStorage('novelNavigatorData', newAppData);
+    updateAppData(newAppData);
     logToPanel('success', `Glossary entry "${updatedEntry.term}" updated.`);
   };
 
-  const handleGlossaryEntryDelete = async (termToDelete) => {
+  const handleGlossaryEntryDelete = (termToDelete) => {
     if (!appData.activeBook) return;
-
     const newGlossary = { ...appData.books[appData.activeBook].glossary };
     delete newGlossary[termToDelete];
 
@@ -283,12 +277,11 @@ const App = () => {
         }
       }
     };
-    setAppData(newAppData);
-    await api.setStorage('novelNavigatorData', newAppData);
+    updateAppData(newAppData);
     logToPanel('info', `Glossary entry "${termToDelete}" deleted.`);
   };
 
-  const handleSaveSettings = async (newSettings) => {
+  const handleSaveSettings = (newSettings) => {
     if (!appData.activeBook) return;
     const newAppData = {
       ...appData,
@@ -300,8 +293,7 @@ const App = () => {
         },
       },
     };
-    setAppData(newAppData);
-    await api.setStorage('novelNavigatorData', newAppData);
+    updateAppData(newAppData);
     setIsSettingsModalOpen(false);
     logToPanel('success', `Settings for "${appData.activeBook}" have been updated.`);
   };
@@ -309,19 +301,6 @@ const App = () => {
   const activeBookData = appData.activeBook ? appData.books[appData.activeBook] : null;
 
   const renderView = () => {
-    if (currentChapter) {
-      const hasPrevious = sortOrder === 'asc' ? currentChapterIndex > 0 : currentChapterIndex < currentChapterList.length - 1;
-      const hasNext = sortOrder === 'asc' ? currentChapterIndex < currentChapterList.length - 1 : currentChapterIndex > 0;
-      return <ChapterView
-        chapter={currentChapter}
-        onBack={handleReturnToTOC}
-        onPrevious={handlePreviousChapter}
-        onNext={handleNextChapter}
-        hasPrevious={hasPrevious}
-        hasNext={hasNext}
-      />;
-    }
-
     if (!appData.activeBook || !activeBookData) {
       return <div className="p-4">Please select, create, or import a book to get started.</div>;
     }
@@ -343,6 +322,13 @@ const App = () => {
           onOpenSettings={() => setIsSettingsModalOpen(true)}
           onDeleteBook={() => handleBookAction({ type: 'delete', payload: appData.activeBook })}
           onBookSelect={(book) => handleBookAction({ type: 'select', payload: book })}
+          onImportBooks={() => handleBookAction({ type: 'import' })}
+          currentChapter={currentChapter}
+          currentChapterList={currentChapterList}
+          currentChapterIndex={currentChapterIndex}
+          onReturnToTOC={handleReturnToTOC}
+          onPreviousChapter={handlePreviousChapter}
+          onNextChapter={handleNextChapter}
         />;
       case 'world-building':
         return <WorldBuilding worldBuilding={activeBookData.worldBuilding || {}} />;
@@ -361,7 +347,7 @@ const App = () => {
       />
       {isSettingsModalOpen && (
         <BookSettingsModal
-          settings={activeBookData.settings}
+          settings={activeBookData?.settings}
           onClose={() => setIsSettingsModalOpen(false)}
           onSave={handleSaveSettings}
         />
@@ -397,5 +383,18 @@ const App = () => {
     </div>
   );
 };
+
+// A simple debounce function
+function debounce(func, wait) {
+  let timeout;
+  return function executedFunction(...args) {
+    const later = () => {
+      clearTimeout(timeout);
+      func(...args);
+    };
+    clearTimeout(timeout);
+    timeout = setTimeout(later, wait);
+  };
+}
 
 export default App;

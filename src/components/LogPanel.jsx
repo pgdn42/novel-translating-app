@@ -35,18 +35,6 @@ const LogPanel = ({ width, setWidth, logs, clients, status }) => {
         });
 
         const lastLog = logs[logs.length - 1];
-        if (lastLog && (lastLog.type === 'ping' || lastLog.type === 'pong')) {
-            const { clientId, timestamp } = lastLog.payload;
-            if (newClientStates[clientId]) {
-                if (lastLog.type === 'ping') {
-                    newClientStates[clientId].lastPing = new Date(timestamp).getTime();
-                } else {
-                    newClientStates[clientId].lastPong = new Date(timestamp).getTime();
-                }
-                stateChanged = true;
-            }
-        }
-
         if (stateChanged) {
             setClientStates(newClientStates);
         }

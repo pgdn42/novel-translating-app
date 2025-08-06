@@ -58,9 +58,6 @@ const connectWebSocket = (onMessage) => {
     socket.onmessage = (event) => {
         try {
             const message = JSON.parse(event.data);
-            if (message.type === 'ping') {
-                sendWebSocketMessage({ type: 'pong' });
-            }
             if (onMessageCallback) {
                 onMessageCallback(message);
             }
