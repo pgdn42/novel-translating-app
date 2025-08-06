@@ -10,6 +10,25 @@ body {
   overflow: hidden; /* Prevent body scroll */
 }
 
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 12px;
+}
+
+::-webkit-scrollbar-track {
+  background: #20232a;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: #4a4d58;
+  border-radius: 20px;
+  border: 3px solid #20232a;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: #5f6368;
+}
+
 .app-container {
   display: flex;
   height: 100vh;
@@ -30,19 +49,43 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 1rem;
+  padding: 0.5rem 1rem;
   background-color: #20232a;
-  border-bottom: 1px solid #61dafb;
+  border-bottom: 1px solid #4a4d58;
   flex-shrink: 0;
 }
 
+.nav-buttons {
+  display: flex;
+  gap: 5px;
+}
+
 .nav-buttons button {
-  margin-left: 10px;
+  background: none;
+  border: none;
+  color: #bdc1c6;
+  padding: 10px 15px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 1em;
+  transition: background-color 0.2s, color 0.2s;
+}
+
+.nav-buttons button:hover {
+  background-color: #3c4043;
+  color: white;
+}
+
+.nav-buttons button.active {
+  background-color: #4a4d58;
+  color: #61dafb;
+  font-weight: bold;
 }
 
 .main-content {
   flex-grow: 1;
   padding: 1rem;
+  padding-right: calc(1rem + 10px); /* Add space for scrollbar */
   overflow-y: auto;
 }
 
@@ -168,6 +211,7 @@ body {
   font-family: monospace;
   font-size: 0.85em;
   margin-top: 10px;
+  padding-right: 10px; /* Add space for scrollbar */
 }
 
 .log-entry {
@@ -248,31 +292,111 @@ body {
   height: 100%;
 }
 
-.book-header .book-title-display,
-.book-header .book-title-input {
+.book-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.book-header-main {
+  flex-grow: 1;
+  min-width: 0; /* Allows the title to shrink */
+}
+
+.book-header-controls {
+  display: flex;
+  gap: 10px;
+  margin-left: 20px;
+}
+
+.icon-button {
+  background: #3c4043;
+  border: 1px solid #5f6368;
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 0.2s, border-color 0.2s;
+}
+
+.icon-button:hover {
+  background-color: #4a4d58;
+  border-color: #61dafb;
+}
+
+.icon-button img {
+  width: 20px;
+  height: 20px;
+  filter: invert(0.8);
+}
+
+.title-selector-wrapper {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+}
+
+.book-title-sizer {
+  position: absolute;
+  top: -9999px;
+  left: -9999px;
+  visibility: hidden;
+  white-space: nowrap;
+  font-size: 2em;
+  font-weight: bold;
+  font-family: inherit;
+  padding: 5px;
+}
+
+.book-title-selector {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  font-size: 2em;
+  font-weight: bold;
+  color: #61dafb;
+  padding: 5px 30px 5px 5px;
+  margin: 0;
+  border-radius: 4px;
+  font-family: inherit;
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  max-width: 100%;
+}
+
+.title-selector-wrapper::after {
+  content: "▼";
+  font-size: 16px;
+  color: #61dafb;
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.book-title-input {
   font-size: 2em;
   font-weight: bold;
   color: #61dafb;
   padding: 5px;
-  margin: 0 0 10px 0;
+  margin: 0;
   border-radius: 4px;
   font-family: inherit;
   width: 100%;
   box-sizing: border-box;
   line-height: 1.2;
-  background: transparent;
-  border: 1px solid transparent;
-}
-
-.book-header .book-title-display {
-  cursor: pointer;
-  display: inline-block;
-  width: auto;
-}
-
-.book-header .book-title-input {
   background: #3c4043;
   border: 1px solid #61dafb;
+}
+
+.book-description-container {
+  margin-bottom: 10px; /* Fix for description overlap */
 }
 
 .book-description-display,
@@ -291,7 +415,6 @@ body {
 }
 
 .book-description-display {
-  cursor: pointer;
   white-space: pre-wrap;
 }
 
@@ -350,6 +473,7 @@ body {
   gap: 15px;
   flex-grow: 1;
   padding-bottom: 15px;
+  padding-right: 10px; /* Add space for scrollbar */
 }
 
 .toc-item {
@@ -429,11 +553,17 @@ body {
 
 .modal-footer {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
   gap: 10px;
   margin-top: 20px;
   padding-top: 20px;
   border-top: 1px solid #5f6368;
+}
+
+.modal-footer-left {
+  display: flex;
+  gap: 10px;
 }
 
 .modal-footer button {
@@ -441,6 +571,7 @@ body {
   padding: 10px 20px;
   border-radius: 6px;
   cursor: pointer;
+  transition: background-color 0.2s;
 }
 
 .modal-footer .btn-primary {
@@ -448,7 +579,335 @@ body {
   color: #202124;
 }
 
+.modal-footer .btn-primary:hover:not(:disabled) {
+  background-color: #79a4e8;
+}
+
 .modal-footer .btn-secondary {
   background-color: #5f6368;
   color: white;
+}
+
+.modal-footer .btn-secondary:hover {
+  background-color: #6f7378;
+}
+
+/* Chapter View Styles */
+.chapter-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 1rem;
+  box-sizing: border-box;
+}
+
+.chapter-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid #5f6368;
+  flex-shrink: 0;
+}
+
+.chapter-header h2 {
+  margin: 0;
+  font-size: 1.5em;
+  color: #61dafb;
+}
+
+.back-button {
+  background-color: #4a4d58;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  margin-right: 1rem;
+  font-size: 0.9em;
+}
+
+.back-button:hover {
+  background-color: #5f6368;
+}
+
+/* New styles for centered content */
+.chapter-content-container {
+  flex-grow: 1;
+  overflow-y: auto;
+  display: flex;
+  justify-content: center;
+  padding-right: 10px; /* Add space for scrollbar */
+}
+
+.chapter-content {
+  max-width: 800px; /* Max width for readability, as requested */
+  width: 100%;
+  padding: 0 2rem; /* Some padding on the sides */
+  line-height: 1.7;
+  font-size: 1.1em;
+  color: #e0e0e0;
+}
+
+.chapter-content p {
+  margin-bottom: 1em;
+}
+
+/* New styles for bottom navigation */
+.chapter-nav-container {
+  flex-shrink: 0;
+  display: flex;
+  justify-content: center;
+  padding-top: 1rem;
+  border-top: 1px solid #5f6368;
+  background-color: #282c34;
+  margin: 0 -1rem -1rem -1rem;
+  margin-top: 1rem;
+}
+
+.chapter-nav {
+  display: flex;
+  gap: 10px;
+}
+
+.chapter-nav button {
+  background-color: #4a4d58;
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 1em;
+}
+
+.chapter-nav button:hover:not(:disabled) {
+  background-color: #5f6368;
+}
+
+.chapter-nav button:disabled {
+  background-color: #3a3d44;
+  color: #777;
+  cursor: not-allowed;
+}
+
+/* Glossary View Styles */
+.glossary-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.glossary-controls {
+  display: flex;
+  gap: 15px;
+  margin-bottom: 20px;
+}
+
+.glossary-controls input[type="search"],
+.glossary-controls select {
+  background-color: #20232a;
+  border: 1px solid #5f6368;
+  color: white;
+  padding: 8px 12px;
+  border-radius: 6px;
+}
+
+.glossary-controls input[type="search"] {
+  flex-grow: 1;
+  min-width: 250px;
+}
+
+.glossary-list {
+  flex-grow: 1;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 15px;
+  padding-top: 5px; /* Add space for hover effect */
+  padding-right: 10px; /* Add space for scrollbar */
+}
+
+.glossary-item {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 15px;
+  background-color: #20232a;
+  border: 1px solid #5f6368;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.2s, border-color 0.2s, transform 0.2s;
+  height: 80px;
+  box-sizing: border-box;
+}
+
+.glossary-item:hover {
+  background-color: #3c4043;
+  border-color: #61dafb;
+  transform: translateY(-2px);
+}
+
+.glossary-term {
+  font-weight: bold;
+  color: #e0e0e0;
+  font-size: 1.1em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.glossary-rendition {
+  color: #61dafb;
+  font-size: 0.9em;
+  margin-top: 5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Glossary Modal Styles */
+.glossary-modal-content {
+  max-width: 700px;
+  width: 95%;
+}
+
+.glossary-modal-header {
+  padding-bottom: 15px;
+  border-bottom: 1px solid #5f6368;
+  margin-bottom: 20px;
+}
+
+.glossary-modal-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+.glossary-modal-field {
+  display: flex;
+  flex-direction: column;
+}
+
+.glossary-modal-field.full-width {
+  grid-column: 1 / -1;
+}
+
+.glossary-modal-field label {
+  font-size: 0.8em;
+  color: #8ab4f8;
+  margin-bottom: 5px;
+  text-transform: uppercase;
+}
+
+.editable-display {
+  padding: 8px 10px;
+  border-radius: 4px;
+  background-color: #3c4043;
+  min-height: 20px;
+  cursor: text;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.editable-display:hover {
+  background-color: #4a4d58;
+}
+
+.editable-input,
+.editable-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  background-color: #20232a;
+  color: white;
+  border: 1px solid #8ab4f8;
+  padding: 8px 10px;
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 1em;
+}
+
+.editable-textarea {
+  min-height: 80px;
+  resize: vertical;
+}
+
+.modal-footer .btn-primary:disabled {
+  background-color: #3c4043;
+  color: #888;
+  cursor: not-allowed;
+}
+
+.modal-footer .btn-danger {
+  background-color: #e57373;
+  color: white;
+}
+
+.modal-footer .btn-danger:hover {
+  background-color: #ef5350;
+}
+
+.modal-footer .btn-danger-confirm {
+  background-color: #d32f2f;
+  color: white;
+}
+
+.modal-footer .btn-danger-confirm:hover {
+  background-color: #c62828;
+}
+
+/* Book Settings Modal */
+.book-settings-modal {
+  max-width: 600px;
+}
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 15px;
+}
+
+.setting-field {
+  display: flex;
+  flex-direction: column;
+}
+
+.setting-field label {
+  font-size: 0.9em;
+  color: #bdc1c6;
+  margin-bottom: 5px;
+  text-transform: capitalize;
+}
+
+.setting-field input {
+  width: 100%;
+}
+
+/* Book Selector Styles */
+.book-selector-wrapper {
+  position: relative;
+  display: inline-block;
+}
+
+.book-selector {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  background-color: #3c4043;
+  border: 1px solid #5f6368;
+  border-radius: 6px;
+  padding: 8px 30px 8px 12px;
+  color: white;
+  cursor: pointer;
+  font-size: 1em;
+}
+
+.book-selector-wrapper::after {
+  content: "▼";
+  font-size: 12px;
+  color: #bdc1c6;
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
 }

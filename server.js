@@ -109,7 +109,81 @@ function startServer(dialog) {
         }
     };
 
-    // ... (rest of WebSocket logic remains the same) ...
+    const heartbeatInterval = setInterval(() => {
+        for (const [clientId, client] of clients.entries()) {
+            if (client.isAlive === false) {
+                console.log(`Client ${client.name || clientId} is not responsive. Terminating connection.`);
+                client.ws.terminate();
+                continue;
+            }
+            client.isAlive = false;
+            client.ws.ping();
+            broadcast({ type: 'ping', payload: { clientId, timestamp: new Date().toISOString() } });
+        }
+    }, 10000);
+
+    wss.on('connection', (ws) => {
+        const clientId = uuidv4();
+        clients.set(clientId, { ws, id: clientId, isAlive: true });
+        console.log(`Client ${clientId} connected.`);
+
+        const broadcastClients = () => {
+            const connectedClients = Array.from(clients.values()).map(c => ({ id: c.id, name: c.name }));
+            broadcast({ type: 'client-list-update', payload: { connectedClients } });
+        };
+
+        broadcastClients();
+
+        ws.on('pong', () => {
+            const client = clients.get(clientId);
+            if (client) {
+                client.isAlive = true;
+            }
+        });
+
+        ws.on('message', (message) => {
+            try {
+                const parsedMessage = JSON.parse(message);
+                if (!parsedMessage.payload) parsedMessage.payload = {};
+                parsedMessage.payload.clientId = clientId;
+
+                if (parsedMessage.type === 'identify') {
+                    const client = clients.get(clientId);
+                    if (client) {
+                        client.name = parsedMessage.payload.clientName;
+                        client.type = parsedMessage.payload.clientType;
+                        console.log(`Client ${clientId} identified as ${client.name}`);
+                        broadcastClients();
+                    }
+                } else if (parsedMessage.type === 'pong') {
+                    // This is a pong for the UI, broadcast it back
+                    broadcast(parsedMessage);
+                } else {
+                    // For other message types, broadcast them
+                    broadcast(parsedMessage);
+                }
+                console.log('Received message:', parsedMessage);
+
+            } catch (error) {
+                console.error('Failed to parse or process message:', error);
+            }
+        });
+
+        ws.on('close', () => {
+            const client = clients.get(clientId);
+            console.log(`Client ${client ? client.name : clientId} disconnected.`);
+            clients.delete(clientId);
+            broadcastClients();
+        });
+
+        ws.on('error', (error) => {
+            console.error(`WebSocket error for client ${clientId}:`, error);
+        });
+    });
+
+    wss.on('close', () => {
+        clearInterval(heartbeatInterval);
+    });
 }
 
 module.exports = { startServer };

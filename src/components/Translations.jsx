@@ -1,37 +1,41 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import { logToPanel } from '../logService';
+import DeleteIcon from '../assets/delete-icon.svg';
+import SettingsIcon from '../assets/settings-icon.svg';
+import EditIcon from '../assets/edit-icon.svg';
 
-const Translations = ({ chapters, bookTitle, bookDescription, onDescriptionChange, onBookTitleChange }) => {
+const Translations = ({ books, activeBook, chapters, bookDescription, onDescriptionChange, onBookTitleChange, onChapterSelect, sortOrder, setSortOrder, onOpenSettings, onDeleteBook, onBookSelect }) => {
     const [description, setDescription] = useState(bookDescription || '');
-    const [title, setTitle] = useState(bookTitle || '');
+    const [title, setTitle] = useState(activeBook || '');
     const [sortedChapters, setSortedChapters] = useState([]);
-    const [sortOrder, setSortOrder] = useState('asc');
     const [searchTerm, setSearchTerm] = useState('');
-    const [isEditingTitle, setIsEditingTitle] = useState(false);
-    const [isEditingDescription, setIsEditingDescription] = useState(false);
+    const [isEditing, setIsEditing] = useState(false);
+    const [selectWidth, setSelectWidth] = useState('auto');
     const titleInputRef = useRef(null);
     const descriptionInputRef = useRef(null);
+    const titleSizerRef = useRef(null);
 
     useEffect(() => {
         setDescription(bookDescription || '');
     }, [bookDescription]);
 
     useEffect(() => {
-        setTitle(bookTitle || '');
-    }, [bookTitle]);
+        setTitle(activeBook || '');
+    }, [activeBook]);
+
+    useLayoutEffect(() => {
+        if (titleSizerRef.current) {
+            // Add 30px for padding and the arrow icon
+            setSelectWidth(titleSizerRef.current.offsetWidth + 30);
+        }
+    }, [activeBook]);
 
     useEffect(() => {
-        if (isEditingTitle && titleInputRef.current) {
+        if (isEditing && titleInputRef.current) {
             titleInputRef.current.focus();
             titleInputRef.current.select();
         }
-    }, [isEditingTitle]);
-
-    useEffect(() => {
-        if (isEditingDescription && descriptionInputRef.current) {
-            descriptionInputRef.current.focus();
-        }
-    }, [isEditingDescription]);
+    }, [isEditing]);
 
     useEffect(() => {
         const enhanced = chapters.map((chapter, index) => ({
@@ -54,27 +58,26 @@ const Translations = ({ chapters, bookTitle, bookDescription, onDescriptionChang
     const handleDescriptionBlur = () => {
         if (description !== bookDescription) {
             onDescriptionChange(description);
-            logToPanel('info', `Book description updated for "${bookTitle}"`);
+            logToPanel('info', `Book description updated for "${activeBook}"`);
         }
-        setIsEditingDescription(false);
     };
 
     const handleTitleBlur = () => {
         const trimmedTitle = title.trim();
-        if (trimmedTitle && trimmedTitle !== bookTitle) {
-            onBookTitleChange(bookTitle, trimmedTitle);
+        if (trimmedTitle && trimmedTitle !== activeBook) {
+            onBookTitleChange(activeBook, trimmedTitle);
         } else {
-            setTitle(bookTitle); // Revert if empty or unchanged
+            setTitle(activeBook);
         }
-        setIsEditingTitle(false);
+        setIsEditing(false);
     };
 
     const handleTitleKeyDown = (e) => {
         if (e.key === 'Enter') {
             handleTitleBlur();
         } else if (e.key === 'Escape') {
-            setTitle(bookTitle);
-            setIsEditingTitle(false);
+            setTitle(activeBook);
+            setIsEditing(false);
         }
     };
 
@@ -85,23 +88,47 @@ const Translations = ({ chapters, bookTitle, bookDescription, onDescriptionChang
     return (
         <div className="translations-view">
             <div className="book-header">
-                {isEditingTitle ? (
-                    <input
-                        ref={titleInputRef}
-                        type="text"
-                        className="book-title-input"
-                        value={title}
-                        onChange={(e) => setTitle(e.target.value)}
-                        onBlur={handleTitleBlur}
-                        onKeyDown={handleTitleKeyDown}
-                    />
-                ) : (
-                    <h1 className="book-title-display" onClick={() => setIsEditingTitle(true)} title="Click to edit">
-                        {bookTitle}
-                    </h1>
-                )}
-
-                {isEditingDescription ? (
+                <div className="book-header-main">
+                    <h1 ref={titleSizerRef} className="book-title-sizer">{activeBook}</h1>
+                    <div className="title-selector-wrapper">
+                        {isEditing ? (
+                            <input
+                                ref={titleInputRef}
+                                type="text"
+                                className="book-title-input"
+                                value={title}
+                                onChange={(e) => setTitle(e.target.value)}
+                                onBlur={handleTitleBlur}
+                                onKeyDown={handleTitleKeyDown}
+                            />
+                        ) : (
+                            <select
+                                className="book-title-selector"
+                                value={activeBook}
+                                onChange={(e) => onBookSelect(e.target.value)}
+                                style={{ width: selectWidth }}
+                            >
+                                {books.map(book => (
+                                    <option key={book} value={book}>{book}</option>
+                                ))}
+                            </select>
+                        )}
+                    </div>
+                </div>
+                <div className="book-header-controls">
+                    <button onClick={() => setIsEditing(!isEditing)} className="icon-button" title={isEditing ? "Finish Editing" : "Edit Title & Description"}>
+                        <img src={EditIcon} alt="Edit" />
+                    </button>
+                    <button onClick={onOpenSettings} className="icon-button" title="Book Settings">
+                        <img src={SettingsIcon} alt="Settings" />
+                    </button>
+                    <button onClick={onDeleteBook} className="icon-button" title="Delete Book">
+                        <img src={DeleteIcon} alt="Delete" />
+                    </button>
+                </div>
+            </div>
+            <div className="book-description-container">
+                {isEditing ? (
                     <textarea
                         ref={descriptionInputRef}
                         className="book-description-edit"
@@ -112,11 +139,12 @@ const Translations = ({ chapters, bookTitle, bookDescription, onDescriptionChang
                         rows="2"
                     ></textarea>
                 ) : (
-                    <div className="book-description-display" onClick={() => setIsEditingDescription(true)} title="Click to edit">
-                        {description || <span className="placeholder-text">Click to add a description...</span>}
+                    <div className="book-description-display">
+                        {description || <span className="placeholder-text">No description provided.</span>}
                     </div>
                 )}
             </div>
+
 
             <hr className="stylish-separator" />
 
@@ -137,8 +165,8 @@ const Translations = ({ chapters, bookTitle, bookDescription, onDescriptionChang
 
             <div className="toc-list">
                 {filteredChapters.length > 0 ? (
-                    filteredChapters.map((chapter) => (
-                        <div key={chapter.originalIndex} className="toc-item">
+                    filteredChapters.map((chapter, index) => (
+                        <div key={chapter.originalIndex} className="toc-item" onClick={() => onChapterSelect(chapter, filteredChapters, index)}>
                             <span className="toc-item-number">Ch. {chapter.chapterNumber}</span>
                             <span className="toc-item-title">{chapter.title}</span>
                         </div>
