@@ -1130,3 +1130,83 @@ body {
   height: 24px;
   filter: invert(1);
 }
+
+.next-chapter-button {
+  position: relative;
+  min-width: 140px; /* Provides enough space for "Translate Next" */
+  height: 38px; /* A fixed height to prevent resizing */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.3s;
+  padding: 0 15px; /* Ensure padding is consistent */
+  box-sizing: border-box; /* Important for consistent sizing */
+}
+
+.loading-spinner {
+  border: 3px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  border-top: 3px solid #fff;
+  width: 20px;
+  height: 20px;
+  animation: spin 1s linear infinite;
+  margin: 0 auto;
+}
+
+.chapter-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 20px;
+  border-bottom: 1px solid #444;
+}
+
+.chapter-header-left,
+.chapter-header-right {
+  display: flex;
+  align-items: center;
+  flex: 1; /* Assign equal flex-grow to left and right */
+}
+
+.chapter-header-left {
+  justify-content: flex-start;
+}
+
+.chapter-header-right {
+  justify-content: flex-end;
+  gap: 15px;
+}
+
+.chapter-header-center {
+  flex: 2; /* Allow the center to take up more space */
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chapter-header h2 {
+  margin: 0;
+  font-size: 1.4em;
+}
+
+.auto-translate-control {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.auto-translate-control label {
+  font-size: 0.9em;
+  color: #ccc;
+  cursor: pointer;
+}
+
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}

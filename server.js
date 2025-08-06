@@ -10,6 +10,10 @@ const { v4: uuidv4 } = require('uuid');
 
 const store = new Store();
 
+// --- Robust Queue System ---
+let translationQueue = [];      // Holds tasks waiting to be sent to the extension.
+let currentlyTranslating = null; // Holds the single task the extension is currently processing.
+
 function startServer(dialog) {
     const app = express();
     const port = 3001;
@@ -121,10 +125,13 @@ function startServer(dialog) {
                 const translatedChaptersPath = path.join(bookPath, 'chapters_translated');
                 await fsp.mkdir(translatedChaptersPath, { recursive: true });
                 for (const chapter of bookData.chapters) {
-                    // FIX: Improved filename sanitization. The original regex was too restrictive and could cause save errors.
                     const safeFilename = chapter.title.replace(/[<>:"/\\|?*]/g, '_').substring(0, 100) + '.txt';
-                    // Using 'chapter.content' which correctly matches the incoming data.
-                    writePromises.push(fsp.writeFile(path.join(translatedChaptersPath, safeFilename), chapter.content, 'utf-8'));
+                    // Use 'content' and ensure it's a string
+                    if (typeof chapter.content === 'string') {
+                        writePromises.push(fsp.writeFile(path.join(translatedChaptersPath, safeFilename), chapter.content, 'utf-8'));
+                    } else {
+                        console.warn(`Skipping chapter "${chapter.title}" for book "${bookName}" due to missing or invalid content.`);
+                    }
                 }
             }
 
@@ -299,14 +306,39 @@ function startServer(dialog) {
         }
     };
 
-    const sendToElectronApp = (message) => {
-        const serializedMessage = JSON.stringify(message);
-        for (const client of clients.values()) {
-            // Only send to the main electron app, not other clients like the extension
-            if (client.type === 'electron-app' && client.ws.readyState === WebSocket.OPEN) {
-                client.ws.send(serializedMessage);
-            }
+    const sendToClient = (client, message) => {
+        if (client && client.ws.readyState === WebSocket.OPEN) {
+            client.ws.send(JSON.stringify(message));
         }
+    };
+
+    const getElectronApp = () => Array.from(clients.values()).find(c => c.type === 'electron-app');
+    const getChromeExtension = () => Array.from(clients.values()).find(c => c.type === 'chrome-extension');
+
+    const processTranslationQueue = () => {
+        const chromeExtension = getChromeExtension();
+        const electronApp = getElectronApp();
+
+        // If a task is already running or the queue is empty, do nothing.
+        if (currentlyTranslating || translationQueue.length === 0) {
+            return;
+        }
+
+        // If the extension is not connected, notify the app and wait.
+        if (!chromeExtension || chromeExtension.ws.readyState !== WebSocket.OPEN) {
+            console.log('Chrome extension is offline. Task remains queued.');
+            sendToClient(electronApp, {
+                type: 'task_queued',
+                payload: { text: 'Browser extension is offline. Request queued.' }
+            });
+            return;
+        }
+
+        // Move the next task from the queue to the 'currentlyTranslating' state.
+        currentlyTranslating = translationQueue.shift();
+        sendToClient(chromeExtension, currentlyTranslating);
+        sendToClient(electronApp, { type: 'translation_started', payload: { sourceUrl: currentlyTranslating.payload.sourceUrl } });
+        console.log(`Sent task to ${chromeExtension.name} for translation:`, currentlyTranslating.payload.title);
     };
 
     const heartbeatInterval = setInterval(() => {
@@ -328,16 +360,10 @@ function startServer(dialog) {
 
         const broadcastClientsListToApp = () => {
             const connectedClients = Array.from(clients.values()).map(c => ({ id: c.id, name: c.name }));
-            sendToElectronApp({ type: 'client-list-update', payload: { connectedClients } });
+            sendToClient(getElectronApp(), { type: 'client-list-update', payload: { connectedClients } });
         };
 
-        // Broadcast a generic connected message to all clients for logging purposes
-        broadcast({
-            type: 'client-connected',
-            payload: { clientId }
-        });
-
-        // Update the Electron app's client list
+        broadcast({ type: 'client-connected', payload: { clientId } });
         broadcastClientsListToApp();
 
         ws.on('pong', () => {
@@ -352,66 +378,102 @@ function startServer(dialog) {
                 const parsedMessage = JSON.parse(message);
                 if (!parsedMessage.payload) parsedMessage.payload = {};
                 const senderClientId = parsedMessage.payload.clientId || clientId;
+                const senderClient = clients.get(senderClientId);
+                const electronApp = getElectronApp();
 
-                if (parsedMessage.type === 'identify') {
-                    const client = clients.get(senderClientId);
-                    if (client) {
-                        // If the new client is a Chrome extension, remove any existing ones
-                        if (parsedMessage.payload.clientType === 'chrome-extension') {
-                            const clientsToRemove = [];
-                            for (const [id, existingClient] of clients.entries()) {
-                                if (existingClient.type === 'chrome-extension' && id !== senderClientId) {
-                                    existingClient.ws.terminate();
-                                    clientsToRemove.push(id);
-                                }
+                switch (parsedMessage.type) {
+                    case 'identify':
+                        if (senderClient) {
+                            if (parsedMessage.payload.clientType === 'chrome-extension') {
+                                clients.forEach((c, id) => {
+                                    if (c.type === 'chrome-extension' && id !== senderClientId) {
+                                        c.ws.terminate();
+                                        clients.delete(id);
+                                        console.log(`Removed old Chrome extension client: ${id}`);
+                                    }
+                                });
                             }
-                            // Remove them from the map after iterating
-                            clientsToRemove.forEach(id => {
-                                clients.delete(id);
-                                console.log(`Removed old Chrome extension client: ${id}`);
+                            senderClient.name = parsedMessage.payload.clientName;
+                            senderClient.type = parsedMessage.payload.clientType;
+                            console.log(`Client ${senderClientId} identified as ${senderClient.name} (${senderClient.type})`);
+                            broadcastClientsListToApp();
+
+                            if (senderClient.type === 'chrome-extension') {
+                                console.log('Chrome extension connected. Processing any queued tasks...');
+                                processTranslationQueue();
+                            }
+                        }
+                        break;
+
+                    case 'sync_pending_chapters':
+                        const { pendingChapters } = parsedMessage.payload;
+                        const chaptersToReset = [];
+
+                        const activeChapterSourceUrls = new Set();
+                        if (currentlyTranslating) {
+                            activeChapterSourceUrls.add(currentlyTranslating.payload.sourceUrl);
+                        }
+                        translationQueue.forEach(task => {
+                            activeChapterSourceUrls.add(task.payload.sourceUrl);
+                        });
+
+                        for (const chapter of pendingChapters) {
+                            if (!activeChapterSourceUrls.has(chapter.sourceUrl)) {
+                                chaptersToReset.push(chapter.sourceUrl);
+                            }
+                        }
+
+                        if (chaptersToReset.length > 0) {
+                            sendToClient(electronApp, {
+                                type: 'reset_pending_status',
+                                payload: { sourceUrls: chaptersToReset }
                             });
                         }
+                        break;
 
-                        client.name = parsedMessage.payload.clientName;
-                        client.type = parsedMessage.payload.clientType;
-                        console.log(`Client ${senderClientId} identified as ${client.name} (${client.type})`);
-                        broadcastClientsListToApp();
-                    }
-                } else if (parsedMessage.type === 'direct-message' || parsedMessage.type === 'cancel-task') {
-                    const targetClient = clients.get(parsedMessage.payload.targetClientId);
-                    if (targetClient && targetClient.ws.readyState === WebSocket.OPEN) {
-                        const messageToSend = {
-                            type: parsedMessage.type,
-                            payload: {
-                                ...parsedMessage.payload,
-                                source: clients.get(senderClientId)?.name || 'unknown-client'
-                            }
-                        };
-                        targetClient.ws.send(JSON.stringify(messageToSend));
-                    }
-                } else if (parsedMessage.type === 'start_bulk_scrape' || parsedMessage.type === 'start_translation') {
-                    const chromeExtension = Array.from(clients.values()).find(c => c.type === 'chrome-extension');
-                    if (chromeExtension && chromeExtension.ws.readyState === WebSocket.OPEN) {
-                        chromeExtension.ws.send(JSON.stringify(parsedMessage));
-                        console.log(`Forwarded '${parsedMessage.type}' to ${chromeExtension.name}`);
-                    } else {
-                        console.error('Chrome extension not connected. Cannot start task.');
-                        const electronApp = clients.get(senderClientId);
-                        if (electronApp) {
-                            electronApp.ws.send(JSON.stringify({
-                                type: 'log-message',
-                                payload: {
-                                    source: 'server-error',
-                                    text: `Command failed: Chrome extension is not connected.`
-                                }
-                            }));
+                    case 'start_translation':
+                        const sourceUrl = parsedMessage.payload.sourceUrl;
+                        const isAlreadyQueued = translationQueue.some(task => task.payload.sourceUrl === sourceUrl);
+                        const isCurrentlyTranslating = currentlyTranslating?.payload.sourceUrl === sourceUrl;
+
+                        if (isAlreadyQueued || isCurrentlyTranslating) {
+                            console.log(`Duplicate translation request rejected for: ${parsedMessage.payload.title}`);
+                            sendToClient(electronApp, {
+                                type: 'duplicate_translation_request',
+                                payload: { title: parsedMessage.payload.title, sourceUrl: sourceUrl }
+                            });
+                        } else {
+                            console.log(`Queuing task: ${parsedMessage.payload.title}`);
+                            translationQueue.push(parsedMessage);
+                            processTranslationQueue();
                         }
-                    }
-                } else {
-                    // For other message types (like translation_complete), broadcast them to all clients
-                    broadcast(parsedMessage);
+                        break;
+
+                    case 'translation_complete':
+                        console.log(`Translation complete for: ${parsedMessage.payload.newChapter.title}`);
+                        currentlyTranslating = null; // Clear the currently active task
+                        broadcast(parsedMessage); // Broadcast to the app
+                        processTranslationQueue(); // Process the next item in the queue
+                        break;
+
+                    case 'translation_failed':
+                        if (currentlyTranslating && currentlyTranslating.payload.sourceUrl === parsedMessage.payload.sourceUrl) {
+                            console.error(`Translation failed for: ${parsedMessage.payload.title}. Re-queueing.`);
+                            // Move the failed task back to the front of the queue
+                            translationQueue.unshift(currentlyTranslating);
+                            currentlyTranslating = null;
+                            // Notify the app so it can update the UI
+                            sendToClient(electronApp, parsedMessage);
+                            // Attempt to process the next item (which might be the same one)
+                            setTimeout(processTranslationQueue, 5000); // Wait 5s before retry
+                        }
+                        break;
+
+                    default:
+                        broadcast(parsedMessage);
+                        break;
                 }
-                console.log('Received message:', parsedMessage);
+                console.log('Received message:', parsedMessage.type);
 
             } catch (error) {
                 console.error('Failed to parse or process message:', error);
@@ -425,7 +487,6 @@ function startServer(dialog) {
             console.log(`Client ${clientName} disconnected. Reason: ${reasonString}`);
             clients.delete(clientId);
 
-            // Broadcast the disconnection event for logging
             broadcast({
                 type: 'client-disconnected',
                 payload: {
@@ -434,7 +495,6 @@ function startServer(dialog) {
                     reason: reasonString
                 }
             });
-            // Update the Electron app's client list
             broadcastClientsListToApp();
         });
 

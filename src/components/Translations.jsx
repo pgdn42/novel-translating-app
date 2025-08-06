@@ -25,13 +25,15 @@ const Translations = ({
     onDeleteBook,
     onBookSelect,
     onImportBooks,
-    // New props for handling chapter view
     currentChapter,
     currentChapterList,
     currentChapterIndex,
     onReturnToTOC,
     onPreviousChapter,
-    onNextChapter
+    onNextChapter,
+    translatingNextSourceUrl,
+    autoTranslateNext,
+    setAutoTranslateNext
 }) => {
     const [description, setDescription] = useState(bookDescription || '');
     const [title, setTitle] = useState(activeBook || '');
@@ -138,6 +140,9 @@ const Translations = ({
             onRetranslate={() => onStartTranslation(currentChapter, true)}
             hasPrevious={hasPrevious}
             hasNext={hasNext}
+            translatingNextSourceUrl={translatingNextSourceUrl}
+            autoTranslateNext={autoTranslateNext}
+            setAutoTranslateNext={setAutoTranslateNext}
         />;
     }
 

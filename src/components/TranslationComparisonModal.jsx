@@ -9,10 +9,8 @@ const TranslationComparisonModal = ({ isOpen, onClose, onAccept, comparisonData 
     const { oldChapter, newChapter, newGlossaryEntries } = comparisonData;
 
     const renderDiff = () => {
-        // FIX: Consistently use 'translatedContent' and provide a fallback empty string.
-        // The old code used 'content', which could be missing or undefined.
-        const oldText = oldChapter.translatedContent || '';
-        const newText = newChapter.translatedContent || '';
+        const oldText = oldChapter.content || '';
+        const newText = newChapter.content || '';
         const differences = diffChars(oldText, newText);
         return differences.map((part, index) => {
             const style = {
@@ -32,8 +30,7 @@ const TranslationComparisonModal = ({ isOpen, onClose, onAccept, comparisonData 
                 <div className="comparison-container">
                     <div className="comparison-pane">
                         <h3>Original Version</h3>
-                        {/* FIX: Use 'translatedContent' for consistency and provide a fallback. */}
-                        <div className="comparison-text">{oldChapter.translatedContent || ''}</div>
+                        <div className="comparison-text">{oldChapter.content || ''}</div>
                     </div>
                     <div className="comparison-pane">
                         <h3>New Version (Diff)</h3>

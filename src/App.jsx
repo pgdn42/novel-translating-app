@@ -18,6 +18,8 @@ const App = () => {
   const [currentChapterList, setCurrentChapterList] = useState([]);
   const [currentChapterIndex, setCurrentChapterIndex] = useState(-1);
   const [sortOrder, setSortOrder] = useState('desc');
+  const [translatingNextSourceUrl, setTranslatingNextSourceUrl] = useState(null);
+  const [autoTranslateNext, setAutoTranslateNext] = useState(true);
 
   const [isLogVisible, setIsLogVisible] = useState(false);
   const [logWidth, setLogWidth] = useState(400);
@@ -80,8 +82,8 @@ const App = () => {
       message.payload.source = 'websocket';
     }
 
-    // Prevents double-logging for translation_complete events
-    if (message.type !== 'translation_complete') {
+    // Prevents double-logging for some events
+    if (!['translation_complete', 'task_queued', 'translation_failed', 'reset_pending_status', 'translation_started', 'duplicate_translation_request'].includes(message.type)) {
       handleNewLog(message);
     }
 
@@ -92,6 +94,58 @@ const App = () => {
         break;
       case 'client-list-update':
         setConnectedClients(message.payload.connectedClients);
+        break;
+      case 'task_queued':
+        logToPanel('warning', message.payload.text);
+        break;
+      case 'translation_started':
+        // We only set the "waiting for" URL if the user is on the last chapter.
+        const book = appDataRef.current.books[appDataRef.current.activeBook];
+        if (book && currentChapter) {
+          const isLastChapter = !currentChapterList.some((chap, idx) => sortOrder === 'desc' ? idx < currentChapterIndex : idx > currentChapterIndex);
+          if (isLastChapter) {
+            setTranslatingNextSourceUrl(message.payload.sourceUrl);
+          }
+        }
+        break;
+      case 'duplicate_translation_request':
+        logToPanel('warning', `Translation for "${message.payload.title}" is already in progress.`);
+        if (translatingNextSourceUrl === message.payload.sourceUrl) {
+          setTranslatingNextSourceUrl(null);
+        }
+        break;
+      case 'translation_failed':
+        logToPanel('error', `Translation failed for "${message.payload.title}". It has been re-queued.`);
+        if (translatingNextSourceUrl === message.payload.sourceUrl) {
+          setTranslatingNextSourceUrl(null);
+        }
+        // Reset the status in the UI
+        updateAppData(currentData => {
+          const newAppData = JSON.parse(JSON.stringify(currentData));
+          const book = newAppData.books[message.payload.bookKey];
+          if (book) {
+            const rawChapter = book.rawChapterData?.find(c => c.sourceUrl === message.payload.sourceUrl);
+            if (rawChapter) {
+              rawChapter.translationStatus = 'untranslated';
+            }
+          }
+          return newAppData;
+        });
+        break;
+      case 'reset_pending_status':
+        logToPanel('info', `Resetting ${message.payload.sourceUrls.length} chapter(s) from 'pending' to 'untranslated'.`);
+        updateAppData(currentData => {
+          const newAppData = JSON.parse(JSON.stringify(currentData));
+          const urlsToReset = new Set(message.payload.sourceUrls);
+          Object.values(newAppData.books).forEach(book => {
+            book.rawChapterData?.forEach(rawChapter => {
+              if (urlsToReset.has(rawChapter.sourceUrl)) {
+                rawChapter.translationStatus = 'untranslated';
+              }
+            });
+          });
+          return newAppData;
+        });
         break;
       case 'save_raw_chapter_batch':
         updateAppData(currentData => {
@@ -127,7 +181,7 @@ const App = () => {
       default:
         break;
     }
-  }, [handleNewLog]);
+  }, [handleNewLog, translatingNextSourceUrl, currentChapter, currentChapterIndex, currentChapterList, sortOrder]);
 
   const parseGlossaryText = (text) => {
     if (typeof text !== 'string' || !text.trim()) {
@@ -181,6 +235,11 @@ const App = () => {
     const { bookKey, newChapter, newGlossaryEntries } = payload;
     const parsedGlossary = parseGlossaryText(newGlossaryEntries);
 
+    const shouldNavigate = newChapter.sourceUrl === translatingNextSourceUrl;
+    if (shouldNavigate) {
+      setTranslatingNextSourceUrl(null);
+    }
+
     updateAppData(currentData => {
       const newAppData = JSON.parse(JSON.stringify(currentData));
       const book = newAppData.books[bookKey];
@@ -189,37 +248,46 @@ const App = () => {
       const existingChapterIndex = book.chapters.findIndex(c => c.sourceUrl === newChapter.sourceUrl);
 
       if (existingChapterIndex !== -1) {
-        // This is a re-translation, so we open the comparison modal
-        // without saving the glossary changes yet.
-        setComparisonData({
-          bookKey,
-          oldChapter: book.chapters[existingChapterIndex],
-          newChapter,
-          newGlossaryEntries: parsedGlossary // Pass the parsed glossary to the modal
-        });
+        setComparisonData({ bookKey, oldChapter: book.chapters[existingChapterIndex], newChapter, newGlossaryEntries: parsedGlossary });
         setIsComparisonModalOpen(true);
         logToPanel('info', `Re-translation for "${newChapter.title}" ready for review.`);
-        // Return the original data without changes for now
         return currentData;
       } else {
-        // This is a new translation, so we save everything.
         if (!book.glossary) book.glossary = {};
         Object.assign(book.glossary, parsedGlossary);
         const newEntryCount = Object.keys(parsedGlossary).length;
-        if (newEntryCount > 0) {
-          logToPanel('success', `Added/updated ${newEntryCount} glossary entries for "${bookKey}".`);
-        }
+        if (newEntryCount > 0) logToPanel('success', `Added/updated ${newEntryCount} glossary entries for "${bookKey}".`);
 
         const rawChapter = book.rawChapterData?.find(c => c.sourceUrl === newChapter.sourceUrl);
-        if (rawChapter) {
-          rawChapter.translationStatus = 'completed';
-        }
+        if (rawChapter) rawChapter.translationStatus = 'completed';
 
         book.chapters.push(newChapter);
         logToPanel('success', `New translation for "${newChapter.title}" received and saved.`);
         return newAppData;
       }
     });
+
+    if (shouldNavigate) {
+      setTimeout(() => {
+        setAppData(currentAppData => {
+          const book = currentAppData.books[bookKey];
+          const enhancedChapters = book.chapters.map((chapter, index) => ({
+            ...chapter,
+            originalIndex: index,
+            chapterNumber: parseInt(chapter.title.match(/(\d+)/)?.[0] || index + 1, 10)
+          }));
+          const sortedChapters = [...enhancedChapters].sort((a, b) => sortOrder === 'asc' ? a.chapterNumber - b.chapterNumber : b.chapterNumber - a.chapterNumber);
+          const newChapterIndex = sortedChapters.findIndex(c => c.sourceUrl === newChapter.sourceUrl);
+
+          if (newChapterIndex !== -1) {
+            setCurrentChapter(sortedChapters[newChapterIndex]);
+            setCurrentChapterList(sortedChapters);
+            setCurrentChapterIndex(newChapterIndex);
+          }
+          return currentAppData;
+        });
+      }, 100);
+    }
   };
 
 
@@ -232,11 +300,9 @@ const App = () => {
       const book = newAppData.books[bookKey];
       if (!book) return currentData;
 
-      // Save the new glossary entries
       if (!book.glossary) book.glossary = {};
       Object.assign(book.glossary, newGlossaryEntries);
 
-      // Save the new chapter content
       const chapterIndex = book.chapters.findIndex(c => c.sourceUrl === newChapter.sourceUrl);
       if (chapterIndex !== -1) {
         book.chapters[chapterIndex] = newChapter;
@@ -246,7 +312,6 @@ const App = () => {
       return newAppData;
     });
 
-    // If the accepted chapter is the one currently being viewed, update it immediately.
     if (currentChapter && currentChapter.sourceUrl === newChapter.sourceUrl) {
       setCurrentChapter(newChapter);
     }
@@ -307,12 +372,16 @@ const App = () => {
 
     if (!isRetranslation) {
       updateAppData(currentData => {
-        const newAppData = { ...currentData };
-        const rawChapter = newAppData.books[bookKey]?.rawChapterData?.find(c => c.sourceUrl === chapterToTranslate.sourceUrl);
-        if (rawChapter) {
-          rawChapter.translationStatus = 'pending';
+        const newAppData = JSON.parse(JSON.stringify(currentData));
+        const book = newAppData.books[bookKey];
+        if (book) {
+          const rawChapter = book.rawChapterData?.find(c => c.sourceUrl === chapterToTranslate.sourceUrl);
+          if (rawChapter && rawChapter.translationStatus !== 'pending') {
+            rawChapter.translationStatus = 'pending';
+            return newAppData;
+          }
         }
-        return newAppData;
+        return currentData;
       });
     }
   };
@@ -323,43 +392,52 @@ const App = () => {
 
     const fetchData = async () => {
       try {
-        // Load cached state first to get activeBook, etc.
         const storedAppData = await api.getStorage('novelNavigatorData');
         const cachedData = storedAppData.novelNavigatorData || { activeBook: null, books: {} };
-
-        // Then, check for the books directory, which is the source of truth
         const pathData = await api.getStorage('booksDirectoryPath');
         const booksDir = pathData.booksDirectoryPath;
+        let booksFromFS = {};
 
         if (booksDir) {
           logToPanel('info', `Loading books from saved directory: ${booksDir}`);
-          // Set directory on server in case it's not set
           await api.setBooksDirectory(booksDir);
-
-          const booksFromFS = await api.importBooks(booksDir);
-
-          const finalData = {
-            ...cachedData,
-            books: booksFromFS,
-          };
-
-          // Validate that the cached activeBook still exists
-          if (finalData.activeBook && !booksFromFS[finalData.activeBook]) {
-            logToPanel('warning', `Cached active book "${finalData.activeBook}" not found. Resetting.`);
-            finalData.activeBook = Object.keys(booksFromFS)[0] || null;
-          }
-
-          setAppData(finalData);
-
+          booksFromFS = await api.importBooks(booksDir);
         } else {
-          // If no directory is set, just rely on the cache
           logToPanel('info', 'No book directory set. Loading from cache.');
-          setAppData(cachedData);
         }
+
+        const finalData = { ...cachedData, books: booksFromFS };
+
+        if (finalData.activeBook && !booksFromFS[finalData.activeBook]) {
+          logToPanel('warning', `Cached active book "${finalData.activeBook}" not found. Resetting.`);
+          finalData.activeBook = Object.keys(booksFromFS)[0] || null;
+        }
+
+        const pendingChapters = [];
+        Object.values(finalData.books).forEach(book => {
+          book.rawChapterData?.forEach(rawChapter => {
+            if (rawChapter.translationStatus === 'pending') {
+              pendingChapters.push({
+                sourceUrl: rawChapter.sourceUrl,
+                title: rawChapter.title
+              });
+            }
+          });
+        });
+
+        if (pendingChapters.length > 0) {
+          logToPanel('info', `Found ${pendingChapters.length} chapter(s) with 'pending' status. Verifying with server...`);
+          api.sendWebSocketMessage({
+            type: 'sync_pending_chapters',
+            payload: { pendingChapters }
+          });
+        }
+
+        setAppData(finalData);
+
       } catch (error) {
         console.error("Failed to fetch initial data:", error);
         logToPanel('error', `Failed to fetch initial data: ${error.message}`);
-        // Fallback to a clean state
         setAppData({ activeBook: null, books: {} });
       }
     };
@@ -605,7 +683,6 @@ const App = () => {
 
     const bookKey = appData.activeBook;
 
-    // Call API to delete the file from the filesystem
     api.deleteRawChapters(bookKey)
       .then(() => {
         logToPanel('info', `Deleted raw chapters file for "${bookKey}".`);
@@ -615,7 +692,6 @@ const App = () => {
         logToPanel('error', `Failed to delete raw chapters file for "${bookKey}": ${err.message}`);
       });
 
-    // Update the state
     updateAppData(currentData => {
       const newAppData = JSON.parse(JSON.stringify(currentData));
       const book = newAppData.books[bookKey];
@@ -635,45 +711,41 @@ const App = () => {
     }
   };
 
-  const handleNextChapter = (shouldStartNewTranslation) => {
+  const handleNextChapter = () => {
+    const book = appData.books[appData.activeBook];
+    if (!book) return;
+
     const newIndex = sortOrder === 'desc' ? currentChapterIndex - 1 : currentChapterIndex + 1;
-    if (newIndex >= 0 && newIndex < currentChapterList.length) {
+    const isLastChapter = !(newIndex >= 0 && newIndex < currentChapterList.length);
+
+    if (!isLastChapter) {
       setCurrentChapterIndex(newIndex);
       setCurrentChapter(currentChapterList[newIndex]);
     }
 
-    if (shouldStartNewTranslation) {
-      const book = appData.books[appData.activeBook];
-      if (!book.rawChapterData || book.rawChapterData.length === 0) {
-        logToPanel('info', 'No raw chapters available to translate.');
+    if (autoTranslateNext) {
+      if (!book.rawChapterData) {
+        if (isLastChapter) logToPanel('info', 'No raw chapters available to translate.');
         return;
       }
-      const translatedUrls = new Set(book.chapters.map(c => c.sourceUrl));
+
       const maxTranslatedNum = book.chapters.reduce((max, chap) => {
         const num = parseInt(chap.title.match(/\d+/)?.[0] || 0, 10);
         return num > max ? num : max;
       }, 0);
 
-      logToPanel('info', `Highest translated chapter is ${maxTranslatedNum}. Looking for the next one.`);
-
       const untranslatedRawChapters = book.rawChapterData
-        .filter(c => !translatedUrls.has(c.sourceUrl) && c.translationStatus !== 'pending')
+        .filter(c => c.translationStatus !== 'pending')
         .map(c => ({ ...c, chapterNumber: parseInt(c.title.match(/(\d+)/)?.[0] || 0, 10) }))
         .sort((a, b) => a.chapterNumber - b.chapterNumber);
 
       const nextToTranslate = untranslatedRawChapters.find(c => c.chapterNumber > maxTranslatedNum);
 
       if (nextToTranslate) {
-        logToPanel('info', `Found next chapter to translate: #${nextToTranslate.chapterNumber} "${nextToTranslate.title}"`);
+        logToPanel('info', `Queuing next chapter for translation: #${nextToTranslate.chapterNumber}`);
         handleStartTranslation(appData.activeBook, nextToTranslate);
-      } else {
-        if (untranslatedRawChapters.length > 0) {
-          logToPanel('warning', `Could not find a chapter after #${maxTranslatedNum}. Falling back to the lowest available untranslated chapter.`);
-          const fallbackChapter = untranslatedRawChapters[0];
-          handleStartTranslation(appData.activeBook, fallbackChapter);
-        } else {
-          logToPanel('info', 'All available raw chapters have been translated or are pending.');
-        }
+      } else if (isLastChapter) {
+        logToPanel('info', 'All available chapters are either translated or pending.');
       }
     }
   };
@@ -796,6 +868,9 @@ const App = () => {
           onReturnToTOC={handleReturnToTOC}
           onPreviousChapter={handlePreviousChapter}
           onNextChapter={handleNextChapter}
+          translatingNextSourceUrl={translatingNextSourceUrl}
+          autoTranslateNext={autoTranslateNext}
+          setAutoTranslateNext={setAutoTranslateNext}
         />;
       case 'world-building':
         return <WorldBuilding worldBuilding={activeBookData.worldBuilding || {}} />;
