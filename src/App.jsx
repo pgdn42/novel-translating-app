@@ -134,7 +134,7 @@ const App = () => {
       return {};
     }
     const entries = {};
-    const blocks = text.split('---').filter(b => b.trim());
+    const blocks = text.split(/\n---\n/).filter(b => b.trim());
 
     for (const block of blocks) {
       const entry = {
@@ -145,8 +145,12 @@ const App = () => {
       let termFound = false;
 
       for (const line of lines) {
-        const [key, ...valueParts] = line.split(':');
-        const value = valueParts.join(':').trim();
+        const separatorIndex = line.indexOf(':');
+        if (separatorIndex === -1) continue;
+
+        const key = line.slice(0, separatorIndex);
+        const value = line.slice(separatorIndex + 1).trim();
+
         if (key && value) {
           const normalizedKey = key.trim().toLowerCase().replace(/_/g, '');
           switch (normalizedKey) {
@@ -175,7 +179,6 @@ const App = () => {
 
   const handleTranslationComplete = (payload) => {
     const { bookKey, newChapter, newGlossaryEntries } = payload;
-
     const parsedGlossary = parseGlossaryText(newGlossaryEntries);
 
     updateAppData(currentData => {
@@ -183,49 +186,57 @@ const App = () => {
       const book = newAppData.books[bookKey];
       if (!book) return currentData;
 
-      if (!book.glossary) book.glossary = {};
-
-      Object.assign(book.glossary, parsedGlossary);
-      const newEntryCount = Object.keys(parsedGlossary).length;
-      if (newEntryCount > 0) {
-        logToPanel('success', `Added/updated ${newEntryCount} glossary entries for "${bookKey}".`);
-      }
-
-      const rawChapter = book.rawChapterData?.find(c => c.sourceUrl === newChapter.sourceUrl);
-      if (rawChapter) {
-        rawChapter.translationStatus = 'completed';
-      }
-
       const existingChapterIndex = book.chapters.findIndex(c => c.sourceUrl === newChapter.sourceUrl);
+
       if (existingChapterIndex !== -1) {
+        // This is a re-translation, so we open the comparison modal
+        // without saving the glossary changes yet.
         setComparisonData({
           bookKey,
           oldChapter: book.chapters[existingChapterIndex],
           newChapter,
-          newGlossaryEntries: parsedGlossary
+          newGlossaryEntries: parsedGlossary // Pass the parsed glossary to the modal
         });
         setIsComparisonModalOpen(true);
         logToPanel('info', `Re-translation for "${newChapter.title}" ready for review.`);
-        return newAppData;
+        // Return the original data without changes for now
+        return currentData;
       } else {
+        // This is a new translation, so we save everything.
+        if (!book.glossary) book.glossary = {};
+        Object.assign(book.glossary, parsedGlossary);
+        const newEntryCount = Object.keys(parsedGlossary).length;
+        if (newEntryCount > 0) {
+          logToPanel('success', `Added/updated ${newEntryCount} glossary entries for "${bookKey}".`);
+        }
+
+        const rawChapter = book.rawChapterData?.find(c => c.sourceUrl === newChapter.sourceUrl);
+        if (rawChapter) {
+          rawChapter.translationStatus = 'completed';
+        }
+
         book.chapters.push(newChapter);
         logToPanel('success', `New translation for "${newChapter.title}" received and saved.`);
+        return newAppData;
       }
-
-      return newAppData;
     });
   };
 
 
   const handleAcceptComparison = () => {
     if (!comparisonData) return;
-    const { bookKey, newChapter } = comparisonData;
+    const { bookKey, newChapter, newGlossaryEntries } = comparisonData;
 
     updateAppData(currentData => {
       const newAppData = JSON.parse(JSON.stringify(currentData));
       const book = newAppData.books[bookKey];
       if (!book) return currentData;
 
+      // Save the new glossary entries
+      if (!book.glossary) book.glossary = {};
+      Object.assign(book.glossary, newGlossaryEntries);
+
+      // Save the new chapter content
       const chapterIndex = book.chapters.findIndex(c => c.sourceUrl === newChapter.sourceUrl);
       if (chapterIndex !== -1) {
         book.chapters[chapterIndex] = newChapter;
