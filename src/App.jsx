@@ -11,6 +11,20 @@ import api from './api';
 import { onLog, logToPanel } from './logService';
 import LogIcon from './assets/log-icon.svg';
 
+// A simple debounce function
+function debounce(func, wait) {
+  let timeout;
+  return function executedFunction(...args) {
+    const later = () => {
+      clearTimeout(timeout);
+      func(...args);
+    };
+    clearTimeout(timeout);
+    timeout = setTimeout(later, wait);
+  };
+}
+
+
 const App = () => {
   const [appData, setAppData] = useState({ activeBook: null, books: {} });
   const [currentView, setCurrentView] = useState('translations');
@@ -30,11 +44,30 @@ const App = () => {
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [isComparisonModalOpen, setIsComparisonModalOpen] = useState(false);
   const [comparisonData, setComparisonData] = useState(null);
-  const appDataRef = useRef(appData);
 
+  // Create refs to hold current state values that are used in callbacks
+  // This avoids adding them to dependency arrays and causing re-renders/re-executions.
+  const stateRef = useRef({
+    appData,
+    currentChapter,
+    currentChapterIndex,
+    currentChapterList,
+    sortOrder,
+    translatingNextSourceUrl
+  });
+
+  // Keep the refs updated with the latest state
   useEffect(() => {
-    appDataRef.current = appData;
-  }, [appData]);
+    stateRef.current = {
+      appData,
+      currentChapter,
+      currentChapterIndex,
+      currentChapterList,
+      sortOrder,
+      translatingNextSourceUrl
+    };
+  }, [appData, currentChapter, currentChapterIndex, currentChapterList, sortOrder, translatingNextSourceUrl]);
+
 
   // Debounce the save function to avoid rapid-fire saves
   const debouncedSave = useCallback(
@@ -68,10 +101,68 @@ const App = () => {
     });
   };
 
-
   const handleNewLog = useCallback((log) => {
     setLogMessages(prev => [...prev, log].slice(-200));
   }, []);
+
+  const handleTranslationComplete = useCallback((payload) => {
+    const { bookKey, newChapter, newGlossaryEntries } = payload;
+    const parsedGlossary = parseGlossaryText(newGlossaryEntries);
+
+    const shouldNavigate = newChapter.sourceUrl === stateRef.current.translatingNextSourceUrl;
+    if (shouldNavigate) {
+      setTranslatingNextSourceUrl(null);
+    }
+
+    updateAppData(currentData => {
+      const newAppData = JSON.parse(JSON.stringify(currentData));
+      const book = newAppData.books[bookKey];
+      if (!book) return currentData;
+
+      const existingChapterIndex = book.chapters.findIndex(c => c.sourceUrl === newChapter.sourceUrl);
+
+      if (existingChapterIndex !== -1) {
+        setComparisonData({ bookKey, oldChapter: book.chapters[existingChapterIndex], newChapter, newGlossaryEntries: parsedGlossary });
+        setIsComparisonModalOpen(true);
+        logToPanel('info', `Re-translation for "${newChapter.title}" ready for review.`);
+        return currentData;
+      } else {
+        if (!book.glossary) book.glossary = {};
+        Object.assign(book.glossary, parsedGlossary);
+        const newEntryCount = Object.keys(parsedGlossary).length;
+        if (newEntryCount > 0) logToPanel('success', `Added/updated ${newEntryCount} glossary entries for "${bookKey}".`);
+
+        const rawChapter = book.rawChapterData?.find(c => c.sourceUrl === newChapter.sourceUrl);
+        if (rawChapter) rawChapter.translationStatus = 'completed';
+
+        book.chapters.push(newChapter);
+        logToPanel('success', `New translation for "${newChapter.title}" received and saved.`);
+        return newAppData;
+      }
+    });
+
+    if (shouldNavigate) {
+      setTimeout(() => {
+        setAppData(currentAppData => {
+          const book = currentAppData.books[bookKey];
+          const enhancedChapters = book.chapters.map((chapter, index) => ({
+            ...chapter,
+            originalIndex: index,
+            chapterNumber: parseInt(chapter.title.match(/(\d+)/)?.[0] || index + 1, 10)
+          }));
+          const sortedChapters = [...enhancedChapters].sort((a, b) => stateRef.current.sortOrder === 'asc' ? a.chapterNumber - b.chapterNumber : b.chapterNumber - a.chapterNumber);
+          const newChapterIndex = sortedChapters.findIndex(c => c.sourceUrl === newChapter.sourceUrl);
+
+          if (newChapterIndex !== -1) {
+            setCurrentChapter(sortedChapters[newChapterIndex]);
+            setCurrentChapterList(sortedChapters);
+            setCurrentChapterIndex(newChapterIndex);
+          }
+          return currentAppData;
+        });
+      }, 100);
+    }
+  }, []); // Empty dependency array as it uses refs and setter functions that are stable
 
   const handleWebSocketMessage = useCallback((message) => {
     if (!message.payload) message.payload = {};
@@ -87,7 +178,6 @@ const App = () => {
       handleNewLog(message);
     }
 
-
     switch (message.type) {
       case 'ws-status':
         setWsStatus(message.payload.status);
@@ -99,24 +189,26 @@ const App = () => {
         logToPanel('warning', message.payload.text);
         break;
       case 'translation_started':
-        // We only set the "waiting for" URL if the user is on the last chapter.
-        const book = appDataRef.current.books[appDataRef.current.activeBook];
-        if (book && currentChapter) {
-          const isLastChapter = !currentChapterList.some((chap, idx) => sortOrder === 'desc' ? idx < currentChapterIndex : idx > currentChapterIndex);
-          if (isLastChapter) {
-            setTranslatingNextSourceUrl(message.payload.sourceUrl);
+        {
+          const { appData: currentAppData, currentChapter: currentChapterRef, currentChapterList: currentChapterListRef, currentChapterIndex: currentChapterIndexRef, sortOrder: sortOrderRefValue } = stateRef.current;
+          const book = currentAppData.books[currentAppData.activeBook];
+          if (book && currentChapterRef) {
+            const isLastChapter = !currentChapterListRef.some((chap, idx) => sortOrderRefValue === 'desc' ? idx < currentChapterIndexRef : idx > currentChapterIndexRef);
+            if (isLastChapter) {
+              setTranslatingNextSourceUrl(message.payload.sourceUrl);
+            }
           }
         }
         break;
       case 'duplicate_translation_request':
         logToPanel('warning', `Translation for "${message.payload.title}" is already in progress.`);
-        if (translatingNextSourceUrl === message.payload.sourceUrl) {
+        if (stateRef.current.translatingNextSourceUrl === message.payload.sourceUrl) {
           setTranslatingNextSourceUrl(null);
         }
         break;
       case 'translation_failed':
         logToPanel('error', `Translation failed for "${message.payload.title}". It has been re-queued.`);
-        if (translatingNextSourceUrl === message.payload.sourceUrl) {
+        if (stateRef.current.translatingNextSourceUrl === message.payload.sourceUrl) {
           setTranslatingNextSourceUrl(null);
         }
         // Reset the status in the UI
@@ -181,7 +273,8 @@ const App = () => {
       default:
         break;
     }
-  }, [handleNewLog, translatingNextSourceUrl, currentChapter, currentChapterIndex, currentChapterList, sortOrder]);
+  }, [handleNewLog, handleTranslationComplete]); // Removed dependencies that are now in refs
+
 
   const parseGlossaryText = (text) => {
     if (typeof text !== 'string' || !text.trim()) {
@@ -230,165 +323,9 @@ const App = () => {
     return entries;
   };
 
-
-  const handleTranslationComplete = (payload) => {
-    const { bookKey, newChapter, newGlossaryEntries } = payload;
-    const parsedGlossary = parseGlossaryText(newGlossaryEntries);
-
-    const shouldNavigate = newChapter.sourceUrl === translatingNextSourceUrl;
-    if (shouldNavigate) {
-      setTranslatingNextSourceUrl(null);
-    }
-
-    updateAppData(currentData => {
-      const newAppData = JSON.parse(JSON.stringify(currentData));
-      const book = newAppData.books[bookKey];
-      if (!book) return currentData;
-
-      const existingChapterIndex = book.chapters.findIndex(c => c.sourceUrl === newChapter.sourceUrl);
-
-      if (existingChapterIndex !== -1) {
-        setComparisonData({ bookKey, oldChapter: book.chapters[existingChapterIndex], newChapter, newGlossaryEntries: parsedGlossary });
-        setIsComparisonModalOpen(true);
-        logToPanel('info', `Re-translation for "${newChapter.title}" ready for review.`);
-        return currentData;
-      } else {
-        if (!book.glossary) book.glossary = {};
-        Object.assign(book.glossary, parsedGlossary);
-        const newEntryCount = Object.keys(parsedGlossary).length;
-        if (newEntryCount > 0) logToPanel('success', `Added/updated ${newEntryCount} glossary entries for "${bookKey}".`);
-
-        const rawChapter = book.rawChapterData?.find(c => c.sourceUrl === newChapter.sourceUrl);
-        if (rawChapter) rawChapter.translationStatus = 'completed';
-
-        book.chapters.push(newChapter);
-        logToPanel('success', `New translation for "${newChapter.title}" received and saved.`);
-        return newAppData;
-      }
-    });
-
-    if (shouldNavigate) {
-      setTimeout(() => {
-        setAppData(currentAppData => {
-          const book = currentAppData.books[bookKey];
-          const enhancedChapters = book.chapters.map((chapter, index) => ({
-            ...chapter,
-            originalIndex: index,
-            chapterNumber: parseInt(chapter.title.match(/(\d+)/)?.[0] || index + 1, 10)
-          }));
-          const sortedChapters = [...enhancedChapters].sort((a, b) => sortOrder === 'asc' ? a.chapterNumber - b.chapterNumber : b.chapterNumber - a.chapterNumber);
-          const newChapterIndex = sortedChapters.findIndex(c => c.sourceUrl === newChapter.sourceUrl);
-
-          if (newChapterIndex !== -1) {
-            setCurrentChapter(sortedChapters[newChapterIndex]);
-            setCurrentChapterList(sortedChapters);
-            setCurrentChapterIndex(newChapterIndex);
-          }
-          return currentAppData;
-        });
-      }, 100);
-    }
-  };
-
-
-  const handleAcceptComparison = () => {
-    if (!comparisonData) return;
-    const { bookKey, newChapter, newGlossaryEntries } = comparisonData;
-
-    updateAppData(currentData => {
-      const newAppData = JSON.parse(JSON.stringify(currentData));
-      const book = newAppData.books[bookKey];
-      if (!book) return currentData;
-
-      if (!book.glossary) book.glossary = {};
-      Object.assign(book.glossary, newGlossaryEntries);
-
-      const chapterIndex = book.chapters.findIndex(c => c.sourceUrl === newChapter.sourceUrl);
-      if (chapterIndex !== -1) {
-        book.chapters[chapterIndex] = newChapter;
-      }
-
-      logToPanel('success', `Re-translation for "${newChapter.title}" accepted and saved.`);
-      return newAppData;
-    });
-
-    if (currentChapter && currentChapter.sourceUrl === newChapter.sourceUrl) {
-      setCurrentChapter(newChapter);
-    }
-
-    setIsComparisonModalOpen(false);
-    setComparisonData(null);
-  };
-
-
-  const handleStartTranslation = (bookKey, chapterToTranslate, isRetranslation = false) => {
-    const book = appData.books[bookKey];
-    if (!book || !chapterToTranslate) return;
-
-    let sourceContent = chapterToTranslate.sourceContent;
-
-    if (isRetranslation) {
-      logToPanel('info', `Starting re-translation for: ${chapterToTranslate.title}`);
-      const rawChapter = book.rawChapterData?.find(c => c.sourceUrl === chapterToTranslate.sourceUrl);
-      if (!rawChapter) {
-        logToPanel('error', `Could not find raw chapter data for re-translation of "${chapterToTranslate.title}".`);
-        return;
-      }
-      sourceContent = rawChapter.sourceContent;
-    } else {
-      logToPanel('info', `Starting translation for: ${chapterToTranslate.title}`);
-    }
-
-    if (!sourceContent) {
-      logToPanel('error', `No source content found for chapter "${chapterToTranslate.title}".`);
-      return;
-    }
-
-    const chapterGlossary = {};
-    for (const term in book.glossary) {
-      if (sourceContent.includes(term)) {
-        chapterGlossary[term] = book.glossary[term];
-      }
-    }
-
-    const prompt = `Translate the following chapter.
-    
-    Chapter-specific Glossary:
-    ${JSON.stringify(chapterGlossary, null, 2)}
-    
-    Raw Chapter Text:
-    ${sourceContent}
-    `;
-
-    api.sendWebSocketMessage({
-      type: 'start_translation',
-      payload: {
-        bookKey,
-        prompt,
-        title: chapterToTranslate.title,
-        sourceUrl: chapterToTranslate.sourceUrl,
-      }
-    });
-
-    if (!isRetranslation) {
-      updateAppData(currentData => {
-        const newAppData = JSON.parse(JSON.stringify(currentData));
-        const book = newAppData.books[bookKey];
-        if (book) {
-          const rawChapter = book.rawChapterData?.find(c => c.sourceUrl === chapterToTranslate.sourceUrl);
-          if (rawChapter && rawChapter.translationStatus !== 'pending') {
-            rawChapter.translationStatus = 'pending';
-            return newAppData;
-          }
-        }
-        return currentData;
-      });
-    }
-  };
-
   useEffect(() => {
     api.connectWebSocket(handleWebSocketMessage);
-    const unsubscribe = onLog(handleNewLog);
+    const unsubscribeLog = onLog(handleNewLog);
 
     const fetchData = async () => {
       try {
@@ -444,8 +381,13 @@ const App = () => {
 
     fetchData();
 
-    return () => unsubscribe();
-  }, [handleWebSocketMessage, handleNewLog]);
+    // The cleanup function for both websocket and log listener
+    return () => {
+      unsubscribeLog();
+      // Assuming connectWebSocket returns a cleanup function as well
+      // If not, api.disconnectWebSocket(); or similar should be called.
+    };
+  }, [handleWebSocketMessage, handleNewLog]); // Now this only runs once on mount as intended
 
   const handleBookAction = (action) => {
     switch (action.type) {
@@ -834,6 +776,102 @@ const App = () => {
   const activeBookData = appData.activeBook ? appData.books[appData.activeBook] : null;
   const rawChapterCount = activeBookData?.rawChapterData?.length || 0;
 
+  const handleAcceptComparison = () => {
+    if (!comparisonData) return;
+    const { bookKey, newChapter, newGlossaryEntries } = comparisonData;
+
+    updateAppData(currentData => {
+      const newAppData = JSON.parse(JSON.stringify(currentData));
+      const book = newAppData.books[bookKey];
+      if (!book) return currentData;
+
+      if (!book.glossary) book.glossary = {};
+      Object.assign(book.glossary, newGlossaryEntries);
+
+      const chapterIndex = book.chapters.findIndex(c => c.sourceUrl === newChapter.sourceUrl);
+      if (chapterIndex !== -1) {
+        book.chapters[chapterIndex] = newChapter;
+      }
+
+      logToPanel('success', `Re-translation for "${newChapter.title}" accepted and saved.`);
+      return newAppData;
+    });
+
+    if (currentChapter && currentChapter.sourceUrl === newChapter.sourceUrl) {
+      setCurrentChapter(newChapter);
+    }
+
+    setIsComparisonModalOpen(false);
+    setComparisonData(null);
+  };
+
+
+  const handleStartTranslation = (bookKey, chapterToTranslate, isRetranslation = false) => {
+    const book = appData.books[bookKey];
+    if (!book || !chapterToTranslate) return;
+
+    let sourceContent = chapterToTranslate.sourceContent;
+
+    if (isRetranslation) {
+      logToPanel('info', `Starting re-translation for: ${chapterToTranslate.title}`);
+      const rawChapter = book.rawChapterData?.find(c => c.sourceUrl === chapterToTranslate.sourceUrl);
+      if (!rawChapter) {
+        logToPanel('error', `Could not find raw chapter data for re-translation of "${chapterToTranslate.title}".`);
+        return;
+      }
+      sourceContent = rawChapter.sourceContent;
+    } else {
+      logToPanel('info', `Starting translation for: ${chapterToTranslate.title}`);
+    }
+
+    if (!sourceContent) {
+      logToPanel('error', `No source content found for chapter "${chapterToTranslate.title}".`);
+      return;
+    }
+
+    const chapterGlossary = {};
+    for (const term in book.glossary) {
+      if (sourceContent.includes(term)) {
+        chapterGlossary[term] = book.glossary[term];
+      }
+    }
+
+    const prompt = `Translate the following chapter.
+    
+    Chapter-specific Glossary:
+    ${JSON.stringify(chapterGlossary, null, 2)}
+    
+    Raw Chapter Text:
+    ${sourceContent}
+    `;
+
+    api.sendWebSocketMessage({
+      type: 'start_translation',
+      payload: {
+        bookKey,
+        prompt,
+        title: chapterToTranslate.title,
+        sourceUrl: chapterToTranslate.sourceUrl,
+      }
+    });
+
+    if (!isRetranslation) {
+      updateAppData(currentData => {
+        const newAppData = JSON.parse(JSON.stringify(currentData));
+        const book = newAppData.books[bookKey];
+        if (book) {
+          const rawChapter = book.rawChapterData?.find(c => c.sourceUrl === chapterToTranslate.sourceUrl);
+          if (rawChapter && rawChapter.translationStatus !== 'pending') {
+            rawChapter.translationStatus = 'pending';
+            return newAppData;
+          }
+        }
+        return currentData;
+      });
+    }
+  };
+
+
   const renderView = () => {
     if (!appData.activeBook || !activeBookData) {
       return <WelcomeScreen onCreate={handleCreateBookFlow} onImport={handleImportBooks} />;
@@ -934,18 +972,5 @@ const App = () => {
     </div>
   );
 };
-
-// A simple debounce function
-function debounce(func, wait) {
-  let timeout;
-  return function executedFunction(...args) {
-    const later = () => {
-      clearTimeout(timeout);
-      func(...args);
-    };
-    clearTimeout(timeout);
-    timeout = setTimeout(later, wait);
-  };
-}
 
 export default App;
