@@ -121,8 +121,9 @@ function startServer(dialog) {
                 const translatedChaptersPath = path.join(bookPath, 'chapters_translated');
                 await fsp.mkdir(translatedChaptersPath, { recursive: true });
                 for (const chapter of bookData.chapters) {
-                    // Sanitize filename to prevent path traversal issues
-                    const safeFilename = chapter.title.replace(/[^a-z0-9_.-]/gi, '_').substring(0, 100) + '.txt';
+                    // FIX: Improved filename sanitization. The original regex was too restrictive and could cause save errors.
+                    const safeFilename = chapter.title.replace(/[<>:"/\\|?*]/g, '_').substring(0, 100) + '.txt';
+                    // Using 'chapter.content' which correctly matches the incoming data.
                     writePromises.push(fsp.writeFile(path.join(translatedChaptersPath, safeFilename), chapter.content, 'utf-8'));
                 }
             }

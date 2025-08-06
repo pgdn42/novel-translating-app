@@ -9,7 +9,7 @@ const ChapterView = ({ chapter, onBack, onPrevious, onNext, onRetranslate, hasPr
     };
 
     // Split the translated content by newlines to render paragraphs, ensuring it's never undefined.
-    const paragraphs = (chapter.translatedContent || '').split('\n').filter(p => p.trim() !== '');
+    const paragraphs = (chapter.content || '').split('\n').filter(p => p.trim() !== '');
 
     return (
         <div className="chapter-view">
