@@ -16,6 +16,7 @@ const Translations = ({
     onBookTitleChange,
     onChapterSelect,
     onDeleteChapter,
+    onDeleteRawChapters,
     onScrapeChapters,
     onStartTranslation,
     sortOrder,
@@ -113,6 +114,12 @@ const Translations = ({
         } else if (e.key === 'Escape') {
             setTitle(activeBook);
             setIsEditing(false);
+        }
+    };
+
+    const handleDeleteRawChaptersClick = () => {
+        if (window.confirm(`Are you sure you want to delete all ${rawChapterCount} raw chapters for "${activeBook}"? This cannot be undone.`)) {
+            onDeleteRawChapters();
         }
     };
 
@@ -222,6 +229,7 @@ const Translations = ({
                     </div>
                     <div className="toc-controls right">
                         <button onClick={onScrapeChapters} className="btn-secondary">Scrape Chapters</button>
+                        <button onClick={handleDeleteRawChaptersClick} className="btn-danger" disabled={!isEditing} title="Delete all raw chapters">Delete Raw Chapters</button>
                     </div>
                 </div>
             </div>

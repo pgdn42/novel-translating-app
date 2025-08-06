@@ -173,6 +173,18 @@ const api = {
             const error = await response.json();
             throw new Error(`Failed to save book: ${error.error}`);
         }
+    },
+
+    deleteRawChapters: async (bookName) => {
+        const response = await fetch(`${API_BASE_URL}/fs/delete-raw-chapters`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ bookName }),
+        });
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(`Failed to delete raw chapters: ${error.error}`);
+        }
     }
 };
 

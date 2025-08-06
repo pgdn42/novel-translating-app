@@ -559,6 +559,33 @@ const App = () => {
     });
   };
 
+  const handleDeleteRawChapters = () => {
+    if (!appData.activeBook) return;
+
+    const bookKey = appData.activeBook;
+
+    // Call API to delete the file from the filesystem
+    api.deleteRawChapters(bookKey)
+      .then(() => {
+        logToPanel('info', `Deleted raw chapters file for "${bookKey}".`);
+      })
+      .catch(err => {
+        console.error("Failed to delete raw chapters file:", err);
+        logToPanel('error', `Failed to delete raw chapters file for "${bookKey}": ${err.message}`);
+      });
+
+    // Update the state
+    updateAppData(currentData => {
+      const newAppData = JSON.parse(JSON.stringify(currentData));
+      const book = newAppData.books[bookKey];
+      if (book) {
+        book.rawChapterData = [];
+      }
+      logToPanel('info', `Cleared raw chapters for "${bookKey}".`);
+      return newAppData;
+    });
+  };
+
   const handlePreviousChapter = () => {
     const newIndex = sortOrder === 'desc' ? currentChapterIndex + 1 : currentChapterIndex - 1;
     if (newIndex >= 0 && newIndex < currentChapterList.length) {
@@ -713,6 +740,7 @@ const App = () => {
           onBookTitleChange={handleBookTitleChange}
           onChapterSelect={handleChapterSelect}
           onDeleteChapter={handleDeleteChapter}
+          onDeleteRawChapters={handleDeleteRawChapters}
           onScrapeChapters={handleScrapeChapters}
           onStartTranslation={(...args) => handleStartTranslation(appData.activeBook, ...args)}
           sortOrder={sortOrder}

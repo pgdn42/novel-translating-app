@@ -257,6 +257,30 @@ function startServer(dialog) {
         }
     });
 
+    app.post('/fs/delete-raw-chapters', async (req, res) => {
+        const { bookName } = req.body;
+        const booksDirPath = store.get('booksDirectoryPath');
+
+        if (!booksDirPath || !bookName) {
+            return res.status(400).json({ error: 'Missing book directory path or book name.' });
+        }
+
+        const rawChaptersFilePath = path.join(booksDirPath, bookName, 'chapters_raw', '_raw_data.json');
+
+        try {
+            if (fs.existsSync(rawChaptersFilePath)) {
+                await fsp.unlink(rawChaptersFilePath);
+                console.log(`Deleted raw chapters file: ${rawChaptersFilePath}`);
+                res.status(200).json({ success: true, message: `Raw chapters file for "${bookName}" deleted.` });
+            } else {
+                res.status(200).json({ success: true, message: 'Raw chapters file not found, nothing to delete.' });
+            }
+        } catch (error) {
+            console.error(`Failed to delete raw chapters file for ${bookName}:`, error);
+            res.status(500).json({ error: 'Failed to delete raw chapters file on disk.' });
+        }
+    });
+
     const server = app.listen(port, () => {
         console.log(`Express server with WebSocket support listening on http://localhost:${port}`);
     });
