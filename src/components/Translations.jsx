@@ -96,12 +96,20 @@ const Translations = ({
         } else {
             setTitle(activeBook);
         }
-        setIsEditing(false);
     };
+
+    const toggleEditing = () => {
+        if (isEditing) {
+            handleTitleBlur();
+            handleDescriptionBlur();
+        }
+        setIsEditing(!isEditing);
+    };
+
 
     const handleTitleKeyDown = (e) => {
         if (e.key === 'Enter') {
-            handleTitleBlur();
+            titleInputRef.current.blur();
         } else if (e.key === 'Escape') {
             setTitle(activeBook);
             setIsEditing(false);
@@ -161,7 +169,7 @@ const Translations = ({
                     <button onClick={onImportBooks} className="icon-button" title="Import Books">
                         <img src={ImportIcon} alt="Import" />
                     </button>
-                    <button onClick={() => setIsEditing(!isEditing)} className="icon-button" title={isEditing ? "Finish Editing" : "Edit Title & Description"}>
+                    <button onClick={toggleEditing} className="icon-button" title={isEditing ? "Finish Editing" : "Edit Title & Description"}>
                         <img src={EditIcon} alt="Edit" />
                     </button>
                     <button onClick={onOpenSettings} className="icon-button" title="Book Settings">
@@ -222,22 +230,26 @@ const Translations = ({
             <div className="toc-list">
                 {filteredChapters.length > 0 ? (
                     filteredChapters.map((chapter, index) => (
-                        <div key={chapter.originalIndex} className="toc-item-wrapper">
-                            <div className="toc-item" onClick={() => onChapterSelect(chapter, filteredChapters, index)}>
-                                <span className="toc-item-number">Ch. {chapter.chapterNumber}</span>
-                                <span className="toc-item-title">{chapter.title}</span>
-                            </div>
-                            <button
-                                className="toc-item-delete"
-                                onClick={(e) => {
-                                    e.stopPropagation(); // Prevents other click handlers from firing
-                                    onDeleteChapter(chapter.sourceUrl);
-                                }}
-                                title="Delete Chapter"
-                            >
-                                <img src={DeleteIcon} alt="Delete" />
-                            </button>
-
+                        <div
+                            key={chapter.originalIndex}
+                            className="toc-item"
+                            onClick={!isEditing ? () => onChapterSelect(chapter, filteredChapters, index) : undefined}
+                            style={{ cursor: isEditing ? 'default' : 'pointer' }}
+                        >
+                            <span className="toc-item-number">Ch. {chapter.chapterNumber}</span>
+                            <span className="toc-item-title">{chapter.title}</span>
+                            {isEditing && (
+                                <button
+                                    className="toc-item-delete"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onDeleteChapter(chapter.sourceUrl);
+                                    }}
+                                    title="Delete Chapter"
+                                >
+                                    <img src={DeleteIcon} alt="Delete" />
+                                </button>
+                            )}
                         </div>
                     ))
                 ) : (

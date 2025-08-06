@@ -323,12 +323,14 @@ body {
 .book-header-main {
   flex-grow: 1;
   min-width: 0; /* Allows the title to shrink */
+  padding-right: 20px;
 }
 
 .book-header-controls {
   display: flex;
   gap: 10px;
   margin-left: 20px;
+  flex-shrink: 0; /* Prevents controls from shrinking */
 }
 
 .icon-button {
@@ -357,7 +359,7 @@ body {
 
 .title-selector-wrapper {
   position: relative;
-  display: inline-block;
+  display: block; /* Let it take full width of parent */
   max-width: 100%;
 }
 
@@ -532,14 +534,7 @@ body {
   padding-right: 10px; /* Add space for scrollbar */
 }
 
-.toc-item-wrapper {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-
 .toc-item {
-  flex-grow: 1;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -547,9 +542,9 @@ body {
   background-color: #20232a;
   border: 1px solid #5f6368;
   border-radius: 6px;
-  cursor: pointer;
   transition: background-color 0.2s, border-color 0.2s;
-  max-height: 20px;
+  height: 24px; /* Set a fixed height */
+  box-sizing: content-box; /* Padding will be outside this height */
 }
 
 .toc-item:hover {
@@ -567,6 +562,8 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  flex-grow: 1;
+  min-width: 0; /* Important for flex-grow to work properly */
 }
 
 .toc-item-delete {
@@ -575,6 +572,7 @@ body {
   padding: 5px;
   cursor: pointer;
   flex-shrink: 0;
+  margin-left: auto; /* Pushes the button to the far right */
 }
 
 .toc-item-delete img {
