@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import { logToPanel } from '../logService';
 import ChapterView from './ChapterView'; // Import ChapterView
-import DeleteIcon from '../assets/delete-icon.svg';
-import SettingsIcon from '../assets/settings-icon.svg';
-import EditIcon from '../assets/edit-icon.svg';
-import ImportIcon from '../assets/import-icon.svg';
+import { ReactComponent as DeleteIcon } from '../assets/delete-icon.svg';
+import { ReactComponent as SettingsIcon } from '../assets/settings-icon.svg';
+import { ReactComponent as EditIcon } from '../assets/edit-icon.svg';
+import { ReactComponent as ImportIcon } from '../assets/import-icon.svg';
 
 const Translations = ({
     books,
@@ -202,16 +202,16 @@ const Translations = ({
                 </div>
                 <div className="book-header-controls">
                     <button onClick={onImportBooks} className="icon-button" title="Import Books">
-                        <img src={ImportIcon} alt="Import" />
+                        <ImportIcon />
                     </button>
                     <button onClick={toggleEditing} className="icon-button" title={isEditing ? "Finish Editing" : "Edit Title & Description"}>
-                        <img src={EditIcon} alt="Edit" />
+                        <EditIcon />
                     </button>
                     <button onClick={onOpenSettings} className="icon-button" title="Book Settings">
-                        <img src={SettingsIcon} alt="Settings" />
+                        <SettingsIcon />
                     </button>
                     <button onClick={onDeleteBook} className="icon-button" title="Delete Book">
-                        <img src={DeleteIcon} alt="Delete" />
+                        <DeleteIcon />
                     </button>
                 </div>
             </div>
@@ -286,7 +286,7 @@ const Translations = ({
                                     }}
                                     title="Delete Chapter"
                                 >
-                                    <img src={DeleteIcon} alt="Delete" />
+                                    <DeleteIcon />
                                 </button>
                             )}
                         </div>

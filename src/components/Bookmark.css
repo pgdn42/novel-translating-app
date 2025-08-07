@@ -1,7 +1,11 @@
 .paragraph-container {
   position: relative;
-  padding-right: 35px; /* Make space for the icon */
+  display: block; /* Ensure it takes full width */
+  width: 100%;
+  padding: 4px 40px 4px 10px; /* Top/Bottom padding for a larger vertical target, Right padding for the icon */
+  box-sizing: border-box;
   transition: background-color 0.3s ease;
+  border-radius: 4px;
 }
 
 .bookmark-icon-container {
@@ -15,17 +19,17 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  opacity: 0.3;
-  transition: opacity 0.2s ease-in-out;
+  opacity: 0; /* Hidden by default */
+  transition: opacity 0.15s ease-in-out;
 }
 
+/* Show icon when the entire row (.paragraph-container) is hovered */
 .paragraph-container:hover .bookmark-icon-container {
-  opacity: 1;
+  opacity: 0.6;
 }
 
-/* Style for the permanently visible bookmark */
-.paragraph-container .bookmark-icon-container {
-  opacity: 1;
+.bookmark-icon-container:hover {
+  opacity: 1 !important;
 }
 
 .bookmark-svg {
@@ -33,7 +37,17 @@
   height: 100%;
 }
 
-/* Highlight effect for the bookmarked paragraph and all those above it */
+/* Style for the active bookmarked icon (the bookmark itself) */
+.paragraph-container.bookmarked .bookmark-icon-container {
+  opacity: 1; /* Always visible and fully opaque */
+}
+
+/* A yellow tint for the icon when it's the active bookmark */
+.paragraph-container.bookmarked .bookmark-svg path[fill="#71c2ff"] {
+  fill: #ffeb3b;
+}
+
+/* A subtle highlight for the bookmarked paragraph and all rows above it */
 .bookmarked-above {
-  background-color: rgba(0, 0, 0, 0.05); /* A subtle dark highlight */
+  background-color: rgba(80, 80, 80, 0.07);
 }

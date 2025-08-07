@@ -9,7 +9,7 @@ import TranslationComparisonModal from './components/TranslationComparisonModal'
 import WelcomeScreen from './components/WelcomeScreen';
 import api from './api';
 import { onLog, logToPanel } from './logService';
-import LogIcon from './assets/log-icon.svg';
+import { ReactComponent as LogIcon } from './assets/log-icon.svg';
 
 function debounce(func, wait) {
   let timeout;
@@ -964,7 +964,7 @@ const App = () => {
           </div>
           <div className="top-right-controls">
             <button onClick={() => setIsLogVisible(!isLogVisible)} className="log-icon-button">
-              <img src={LogIcon} alt="Toggle Log" />
+              <LogIcon />
             </button>
           </div>
         </nav>
