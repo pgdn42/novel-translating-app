@@ -33,7 +33,9 @@ const Translations = ({
     onNextChapter,
     translatingNextSourceUrl,
     autoTranslateNext,
-    setAutoTranslateNext
+    setAutoTranslateNext,
+    bookmark,
+    onUpdateBookmark
 }) => {
     const [description, setDescription] = useState(bookDescription || '');
     const [title, setTitle] = useState(activeBook || '');
@@ -125,6 +127,25 @@ const Translations = ({
         }
     };
 
+    const handleGoToBookmark = () => {
+        if (!bookmark) return;
+
+        const bookmarkedChapter = chapters.find(c => c.sourceUrl === bookmark.chapterSourceUrl);
+        if (!bookmarkedChapter) {
+            logToPanel('error', "Bookmarked chapter not found! It may have been deleted.");
+            onUpdateBookmark(null); // Clear the stale bookmark
+            return;
+        }
+
+        const chapterIndexInSortedList = sortedChapters.findIndex(c => c.sourceUrl === bookmark.chapterSourceUrl);
+
+        if (chapterIndexInSortedList !== -1) {
+            onChapterSelect(bookmarkedChapter, sortedChapters, chapterIndexInSortedList);
+        } else {
+            logToPanel('warning', "Could not navigate to the bookmarked chapter. It may not be visible with the current filters.");
+        }
+    };
+
     const filteredChapters = sortedChapters.filter(chapter =>
         chapter.title.toLowerCase().includes(searchTerm.toLowerCase())
     );
@@ -143,6 +164,8 @@ const Translations = ({
             translatingNextSourceUrl={translatingNextSourceUrl}
             autoTranslateNext={autoTranslateNext}
             setAutoTranslateNext={setAutoTranslateNext}
+            bookmark={bookmark}
+            onUpdateBookmark={onUpdateBookmark}
         />;
     }
 
@@ -231,6 +254,9 @@ const Translations = ({
                         <button onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}>
                             Sort {sortOrder === 'asc' ? 'Newest' : 'Oldest'} First
                         </button>
+                        {bookmark && (
+                            <button onClick={handleGoToBookmark}>Go to Bookmark</button>
+                        )}
                     </div>
                     <div className="toc-controls right">
                         <button onClick={onScrapeChapters} className="btn-secondary">Scrape Chapters</button>

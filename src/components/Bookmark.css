@@ -1,0 +1,39 @@
+.paragraph-container {
+  position: relative;
+  padding-right: 35px; /* Make space for the icon */
+  transition: background-color 0.3s ease;
+}
+
+.bookmark-icon-container {
+  position: absolute;
+  right: 5px;
+  top: 50%;
+  transform: translateY(-50%);
+  cursor: pointer;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.3;
+  transition: opacity 0.2s ease-in-out;
+}
+
+.paragraph-container:hover .bookmark-icon-container {
+  opacity: 1;
+}
+
+/* Style for the permanently visible bookmark */
+.paragraph-container .bookmark-icon-container {
+  opacity: 1;
+}
+
+.bookmark-svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* Highlight effect for the bookmarked paragraph and all those above it */
+.bookmarked-above {
+  background-color: rgba(0, 0, 0, 0.05); /* A subtle dark highlight */
+}

@@ -125,15 +125,17 @@ function startServer(dialog) {
                 const translatedChaptersPath = path.join(bookPath, 'chapters_translated');
                 await fsp.mkdir(translatedChaptersPath, { recursive: true });
                 for (const chapter of bookData.chapters) {
-                    const safeFilename = chapter.title.replace(/[<>:"/\\|?*]/g, '_').substring(0, 100) + '.txt';
-                    // Use 'content' and ensure it's a string
-                    if (typeof chapter.content === 'string') {
-                        writePromises.push(fsp.writeFile(path.join(translatedChaptersPath, safeFilename), chapter.content, 'utf-8'));
-                    } else {
-                        console.warn(`Skipping chapter "${chapter.title}" for book "${bookName}" due to missing or invalid content.`);
-                    }
+                    const safeFilename = chapter.title.replace(/[<>:"/\\|?*]/g, '_').substring(0, 100) + '.json'; // Save as .json
+                    // Create a clean chapter object for saving
+                    const chapterJson = {
+                        title: chapter.title,
+                        sourceUrl: chapter.sourceUrl, // Ensure sourceUrl is saved
+                        content: chapter.content
+                    };
+                    writePromises.push(fsp.writeFile(path.join(translatedChaptersPath, safeFilename), JSON.stringify(chapterJson, null, 2), 'utf-8'));
                 }
             }
+
 
             await Promise.all(writePromises);
             res.status(200).json({ success: true, message: `Book "${bookName}" saved successfully.` });
@@ -250,11 +252,18 @@ function startServer(dialog) {
                 if (fs.existsSync(chaptersPath)) {
                     const chapterFiles = await fsp.readdir(chaptersPath);
                     for (const chapterFile of chapterFiles) {
-                        const title = path.basename(chapterFile, '.txt');
-                        const content = await fsp.readFile(path.join(chaptersPath, chapterFile), 'utf-8');
-                        chapterMap.set(title, { title, content });
+                        if (chapterFile.endsWith('.json')) { // Read .json files
+                            const chapterContent = await fsp.readFile(path.join(chaptersPath, chapterFile), 'utf-8');
+                            const chapterData = JSON.parse(chapterContent);
+                            chapterMap.set(chapterData.title, chapterData);
+                        } else if (chapterFile.endsWith('.txt')) { // Legacy .txt support
+                            const title = path.basename(chapterFile, '.txt');
+                            const content = await fsp.readFile(path.join(chaptersPath, chapterFile), 'utf-8');
+                            chapterMap.set(title, { title, content, sourceUrl: null }); // No sourceUrl for old format
+                        }
                     }
                 }
+
                 bookData.chapters = Array.from(chapterMap.values());
                 importedBooks[bookName] = bookData;
             }

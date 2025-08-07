@@ -6,12 +6,11 @@ import LogPanel from './components/LogPanel';
 import NewBookModal from './components/NewBookModal';
 import BookSettingsModal from './components/BookSettingsModal';
 import TranslationComparisonModal from './components/TranslationComparisonModal';
-import WelcomeScreen from './components/WelcomeScreen'; // Import the new component
+import WelcomeScreen from './components/WelcomeScreen';
 import api from './api';
 import { onLog, logToPanel } from './logService';
 import LogIcon from './assets/log-icon.svg';
 
-// A simple debounce function
 function debounce(func, wait) {
   let timeout;
   return function executedFunction(...args) {
@@ -45,8 +44,6 @@ const App = () => {
   const [isComparisonModalOpen, setIsComparisonModalOpen] = useState(false);
   const [comparisonData, setComparisonData] = useState(null);
 
-  // Create refs to hold current state values that are used in callbacks
-  // This avoids adding them to dependency arrays and causing re-renders/re-executions.
   const stateRef = useRef({
     appData,
     currentChapter,
@@ -56,7 +53,6 @@ const App = () => {
     translatingNextSourceUrl
   });
 
-  // Keep the refs updated with the latest state
   useEffect(() => {
     stateRef.current = {
       appData,
@@ -69,16 +65,13 @@ const App = () => {
   }, [appData, currentChapter, currentChapterIndex, currentChapterList, sortOrder, translatingNextSourceUrl]);
 
 
-  // Debounce the save function to avoid rapid-fire saves
   const debouncedSave = useCallback(
     debounce((dataToSave) => {
-      // 1. Save the entire app state to electron-store for quick startup
       api.setStorage('novelNavigatorData', dataToSave).catch(err => {
         console.error("Failed to save data to electron-store:", err);
         logToPanel('error', 'Failed to save application state.');
       });
 
-      // 2. Persist the currently active book to the filesystem
       const activeBookName = dataToSave.activeBook;
       if (activeBookName && dataToSave.books[activeBookName]) {
         const activeBookData = dataToSave.books[activeBookName];
@@ -99,6 +92,20 @@ const App = () => {
       debouncedSave(newData);
       return newData;
     });
+  };
+
+  const handleUpdateBookmark = (bookmark) => {
+    if (!appData.activeBook) return;
+    updateAppData(currentData => ({
+      ...currentData,
+      books: {
+        ...currentData.books,
+        [currentData.activeBook]: {
+          ...currentData.books[currentData.activeBook],
+          bookmark: bookmark
+        }
+      }
+    }));
   };
 
   const handleNewLog = useCallback((log) => {
@@ -162,7 +169,7 @@ const App = () => {
         });
       }, 100);
     }
-  }, []); // Empty dependency array as it uses refs and setter functions that are stable
+  }, []);
 
   const handleWebSocketMessage = useCallback((message) => {
     if (!message.payload) message.payload = {};
@@ -173,7 +180,6 @@ const App = () => {
       message.payload.source = 'websocket';
     }
 
-    // Prevents double-logging for some events
     if (!['translation_complete', 'task_queued', 'translation_failed', 'reset_pending_status', 'translation_started', 'duplicate_translation_request'].includes(message.type)) {
       handleNewLog(message);
     }
@@ -211,7 +217,6 @@ const App = () => {
         if (stateRef.current.translatingNextSourceUrl === message.payload.sourceUrl) {
           setTranslatingNextSourceUrl(null);
         }
-        // Reset the status in the UI
         updateAppData(currentData => {
           const newAppData = JSON.parse(JSON.stringify(currentData));
           const book = newAppData.books[message.payload.bookKey];
@@ -273,7 +278,7 @@ const App = () => {
       default:
         break;
     }
-  }, [handleNewLog, handleTranslationComplete]); // Removed dependencies that are now in refs
+  }, [handleNewLog, handleTranslationComplete]);
 
 
   const parseGlossaryText = (text) => {
@@ -381,13 +386,10 @@ const App = () => {
 
     fetchData();
 
-    // The cleanup function for both websocket and log listener
     return () => {
       unsubscribeLog();
-      // Assuming connectWebSocket returns a cleanup function as well
-      // If not, api.disconnectWebSocket(); or similar should be called.
     };
-  }, [handleWebSocketMessage, handleNewLog]); // Now this only runs once on mount as intended
+  }, [handleWebSocketMessage, handleNewLog]);
 
   const handleBookAction = (action) => {
     switch (action.type) {
@@ -502,7 +504,8 @@ const App = () => {
         rawChapterData: [],
         description: '',
         settings: {},
-        worldBuilding: { categories: [] }
+        worldBuilding: { categories: [] },
+        bookmark: null
       };
       updateAppData(currentData => ({
         ...currentData,
@@ -614,6 +617,11 @@ const App = () => {
         const chapterTitle = book.chapters[chapterIndex].title;
         book.chapters.splice(chapterIndex, 1);
         logToPanel('info', `Deleted chapter: "${chapterTitle}"`);
+      }
+
+      if (book.bookmark && book.bookmark.chapterSourceUrl === chapterSourceUrl) {
+        book.bookmark = null;
+        logToPanel('info', `Bookmark removed from deleted chapter.`);
       }
 
       return newAppData;
@@ -810,18 +818,19 @@ const App = () => {
     const book = appData.books[bookKey];
     if (!book || !chapterToTranslate) return;
 
-    let sourceContent = chapterToTranslate.sourceContent;
+    let sourceContent;
+    const rawChapter = book.rawChapterData?.find(c => c.sourceUrl === chapterToTranslate.sourceUrl);
 
     if (isRetranslation) {
       logToPanel('info', `Starting re-translation for: ${chapterToTranslate.title}`);
-      const rawChapter = book.rawChapterData?.find(c => c.sourceUrl === chapterToTranslate.sourceUrl);
       if (!rawChapter) {
-        logToPanel('error', `Could not find raw chapter data for re-translation of "${chapterToTranslate.title}".`);
+        logToPanel('error', `Could not find raw chapter data for re-translation of "${chapterToTranslate.title}". This may be an older chapter without a saved source URL.`);
         return;
       }
       sourceContent = rawChapter.sourceContent;
     } else {
       logToPanel('info', `Starting translation for: ${chapterToTranslate.title}`);
+      sourceContent = chapterToTranslate.sourceContent;
     }
 
     if (!sourceContent) {
@@ -860,9 +869,9 @@ const App = () => {
         const newAppData = JSON.parse(JSON.stringify(currentData));
         const book = newAppData.books[bookKey];
         if (book) {
-          const rawChapter = book.rawChapterData?.find(c => c.sourceUrl === chapterToTranslate.sourceUrl);
-          if (rawChapter && rawChapter.translationStatus !== 'pending') {
-            rawChapter.translationStatus = 'pending';
+          const rawChapterToUpdate = book.rawChapterData?.find(c => c.sourceUrl === chapterToTranslate.sourceUrl);
+          if (rawChapterToUpdate && rawChapterToUpdate.translationStatus !== 'pending') {
+            rawChapterToUpdate.translationStatus = 'pending';
             return newAppData;
           }
         }
@@ -909,6 +918,8 @@ const App = () => {
           translatingNextSourceUrl={translatingNextSourceUrl}
           autoTranslateNext={autoTranslateNext}
           setAutoTranslateNext={setAutoTranslateNext}
+          bookmark={activeBookData.bookmark}
+          onUpdateBookmark={handleUpdateBookmark}
         />;
       case 'world-building':
         return <WorldBuilding worldBuilding={activeBookData.worldBuilding || {}} />;
