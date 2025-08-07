@@ -1,3 +1,4 @@
+// path: src/components/Glossary.jsx
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import GlossaryModal from './GlossaryModal';
 
@@ -105,7 +106,12 @@ const Glossary = ({ glossary, onUpdateEntry, onDeleteEntry }) => {
     return (
         <div className="glossary-view">
             {selectedEntry && <GlossaryModal entry={selectedEntry} onSave={handleSave} onDelete={handleDelete} onClose={handleCloseModal} />}
-            <h2>Glossary</h2>
+            <div className="glossary-header">
+                <h2>Glossary</h2>
+                <div className="glossary-term-count">
+                    Showing {filteredGlossary.length}/{parsedGlossary.length} terms
+                </div>
+            </div>
             <div className="glossary-controls">
                 <input
                     type="search"
