@@ -11,16 +11,39 @@ import api from './api';
 import { onLog, logToPanel } from './logService';
 import { ReactComponent as LogIcon } from './assets/log-icon.svg';
 
+/**
+ * A debounced function that will delay invoking `func` until after `wait`
+ * milliseconds have elapsed since the last time the debounced function was invoked.
+ * The debounced function comes with a `flush` method to immediately invoke
+ * any pending function call.
+ * @param {Function} func The function to debounce.
+ * @param {number} wait The number of milliseconds to delay.
+ * @returns {Function} Returns the new debounced function.
+ */
 function debounce(func, wait) {
-  let timeout;
-  return function executedFunction(...args) {
-    const later = () => {
-      clearTimeout(timeout);
-      func(...args);
-    };
-    clearTimeout(timeout);
-    timeout = setTimeout(later, wait);
+  let timeoutId = null;
+  let lastArgs = null;
+
+  const debounced = (...args) => {
+    lastArgs = args;
+    clearTimeout(timeoutId);
+    timeoutId = setTimeout(() => {
+      if (lastArgs) {
+        func(...lastArgs);
+        lastArgs = null;
+      }
+    }, wait);
   };
+
+  debounced.flush = () => {
+    clearTimeout(timeoutId);
+    if (lastArgs) {
+      func(...lastArgs);
+      lastArgs = null;
+    }
+  };
+
+  return debounced;
 }
 
 
@@ -85,6 +108,21 @@ const App = () => {
     }, 2000),
     []
   );
+
+  // Effect to flush any pending saves when the application is closing.
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      debouncedSave.flush();
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      // Also flush on component unmount, which can happen during development with hot-reloading
+      handleBeforeUnload();
+    };
+  }, [debouncedSave]);
 
   const updateAppData = (updater) => {
     setAppData(updater);
@@ -330,27 +368,51 @@ const App = () => {
 
     const fetchData = async () => {
       try {
+        // 1. Get cached application state (includes last active book, and potentially bookmarks)
         const storedAppData = await api.getStorage('novelNavigatorData');
         const cachedData = storedAppData.novelNavigatorData || { activeBook: null, books: {} };
+
+        // 2. Get the books directory path
         const pathData = await api.getStorage('booksDirectoryPath');
         const booksDir = pathData.booksDirectoryPath;
         let booksFromFS = {};
 
+        // 3. Load all book data from the filesystem if directory is set
         if (booksDir) {
           logToPanel('info', `Loading books from saved directory: ${booksDir}`);
           await api.setBooksDirectory(booksDir);
           booksFromFS = await api.importBooks(booksDir);
         } else {
-          logToPanel('info', 'No book directory set. Loading from cache.');
+          logToPanel('info', 'No book directory set. Using only cached data.');
         }
 
-        const finalData = { ...cachedData, books: booksFromFS };
+        // 4. Merge filesystem data with cached data
+        // This ensures that data like bookmarks, which are only in the cache, are preserved.
+        const finalBooks = {};
+        const allBookKeys = new Set([...Object.keys(cachedData.books), ...Object.keys(booksFromFS)]);
 
-        if (finalData.activeBook && !booksFromFS[finalData.activeBook]) {
+        allBookKeys.forEach(bookKey => {
+          const fsBook = booksFromFS[bookKey] || {};
+          const cachedBook = cachedData.books[bookKey] || {};
+          // The cachedBook is spread first, so any matching properties from the
+          // more up-to-date fsBook will overwrite it. Crucially, properties
+          // that only exist in the cache (like the bookmark) will be kept.
+          finalBooks[bookKey] = { ...cachedBook, ...fsBook };
+        });
+
+        const finalData = {
+          activeBook: cachedData.activeBook,
+          books: finalBooks
+        };
+
+
+        // 5. Validate the active book and reset if it's no longer found
+        if (finalData.activeBook && !finalData.books[finalData.activeBook]) {
           logToPanel('warning', `Cached active book "${finalData.activeBook}" not found. Resetting.`);
-          finalData.activeBook = Object.keys(booksFromFS)[0] || null;
+          finalData.activeBook = Object.keys(finalData.books)[0] || null;
         }
 
+        // 6. Sync chapter statuses with the server
         const pendingChapters = [];
         Object.values(finalData.books).forEach(book => {
           book.rawChapterData?.forEach(rawChapter => {
@@ -371,12 +433,13 @@ const App = () => {
           });
         }
 
+        // 7. Set the final, merged application state
         setAppData(finalData);
 
       } catch (error) {
         console.error("Failed to fetch initial data:", error);
         logToPanel('error', `Failed to fetch initial data: ${error.message}`);
-        setAppData({ activeBook: null, books: {} });
+        setAppData({ activeBook: null, books: {} }); // Fallback to a clean state
       }
     };
 
@@ -386,6 +449,12 @@ const App = () => {
       unsubscribeLog();
     };
   }, [handleWebSocketMessage, handleNewLog]);
+
+  useEffect(() => {
+    if (appData.activeBook) {
+      debouncedSave(appData);
+    }
+  }, [appData, debouncedSave]);
 
   const handleBookAction = (action) => {
     switch (action.type) {
@@ -767,8 +836,8 @@ const App = () => {
       ...currentData,
       books: {
         ...currentData.books,
-        [appData.activeBook]: {
-          ...currentData.books[appData.activeBook],
+        [currentData.activeBook]: {
+          ...currentData.books[currentData.activeBook],
           settings: newSettings,
         },
       },
