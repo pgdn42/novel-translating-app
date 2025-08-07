@@ -1,3 +1,4 @@
+// path: /src/components/Translations.jsx
 import React, { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import { logToPanel } from '../logService';
 import ChapterView from './ChapterView'; // Import ChapterView
@@ -128,21 +129,28 @@ const Translations = ({
     };
 
     const handleGoToBookmark = () => {
-        if (!bookmark) return;
-
-        const bookmarkedChapter = chapters.find(c => c.sourceUrl === bookmark.chapterSourceUrl);
-        if (!bookmarkedChapter) {
-            logToPanel('error', "Bookmarked chapter not found! It may have been deleted.");
-            onUpdateBookmark(null); // Clear the stale bookmark
+        if (!bookmark) {
+            logToPanel('info', 'No bookmark set.');
             return;
         }
 
+        // Find the index of the bookmarked chapter in the complete sorted list.
         const chapterIndexInSortedList = sortedChapters.findIndex(c => c.sourceUrl === bookmark.chapterSourceUrl);
 
         if (chapterIndexInSortedList !== -1) {
+            // Get the chapter object from the same list.
+            const bookmarkedChapter = sortedChapters[chapterIndexInSortedList];
+
+            // Clear any search term so the user isn't confused when they return to the TOC.
+            setSearchTerm('');
+
+            // Navigate using the complete sorted list and the correct index.
             onChapterSelect(bookmarkedChapter, sortedChapters, chapterIndexInSortedList);
         } else {
-            logToPanel('warning', "Could not navigate to the bookmarked chapter. It may not be visible with the current filters.");
+            // This case can happen if the bookmarked chapter was deleted.
+            logToPanel('error', "Bookmarked chapter not found! It may have been deleted.");
+            // We clear the stale bookmark to prevent further errors.
+            onUpdateBookmark(null);
         }
     };
 
