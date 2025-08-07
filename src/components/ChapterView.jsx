@@ -1,7 +1,8 @@
-import React, { useEffect, useRef, useState, useLayoutEffect } from 'react';
+// path: /src/components/ChapterView.jsx
+import React, { useRef, useLayoutEffect } from 'react';
 import RepeatIcon from '../assets/repeat-icon.svg';
 import LoadingSpinner from './LoadingSpinner';
-import { ReactComponent as BookmarkIcon } from '../assets/bookmark-icon.svg';
+import Paragraph from './Paragraph';
 import './Bookmark.css';
 
 const ChapterView = ({
@@ -20,55 +21,67 @@ const ChapterView = ({
 }) => {
     const contentContainerRef = useRef(null);
     const paragraphRefs = useRef([]);
-    const [hoveredParagraph, setHoveredParagraph] = useState(null);
     const hasScrolledToBookmark = useRef(false);
 
-    // This effect handles all scrolling logic.
+    // Effect 1: Scroll to the top ONLY when the chapter changes.
     useLayoutEffect(() => {
-        const isBookmarkedInThisChapter = bookmark && bookmark.chapterSourceUrl === chapter.sourceUrl;
-
-        // If there's a bookmark in this chapter and we haven't scrolled to it yet
-        if (isBookmarkedInThisChapter && !hasScrolledToBookmark.current) {
-            const bookmarkedElement = paragraphRefs.current[bookmark.paragraphIndex];
-            if (bookmarkedElement) {
-                // We scroll to the bookmarked paragraph instead of the top
-                bookmarkedElement.scrollIntoView({ behavior: 'auto', block: 'center' });
-                hasScrolledToBookmark.current = true; // Mark that we've done the initial scroll
-                return; // Stop here to prevent scrolling to top
-            }
-        }
-
-        // If there's no bookmark, or we've already handled the bookmark scroll,
-        // we scroll to the top of the content container.
         if (contentContainerRef.current) {
             contentContainerRef.current.scrollTo({ top: 0, behavior: 'auto' });
         }
-    }, [chapter.sourceUrl, bookmark]); // Re-run whenever the chapter or bookmark changes
-
-    // Reset the "has scrolled" flag when the chapter changes
-    useEffect(() => {
         hasScrolledToBookmark.current = false;
-    }, [chapter.sourceUrl]);
+    }, [chapter.sourceUrl, chapter.title]); // Depend on title as well for fallback
+
+    // Effect 2: Scroll to the bookmark if it exists in the current chapter.
+    useLayoutEffect(() => {
+        const isBookmarkedInThisChapter = doBookmarksMatch(bookmark, chapter);
+
+        if (isBookmarkedInThisChapter && !hasScrolledToBookmark.current) {
+            const bookmarkedElement = paragraphRefs.current[bookmark.paragraphIndex];
+            if (bookmarkedElement) {
+                bookmarkedElement.scrollIntoView({ behavior: 'auto', block: 'center' });
+                hasScrolledToBookmark.current = true;
+            }
+        }
+    }, [chapter.sourceUrl, chapter.title, bookmark]);
 
 
-    const handleBookmarkClick = (index, event) => {
-        event.stopPropagation();
-        // Check if the clicked paragraph is the currently active bookmark for this chapter
-        const isCurrentlyBookmarked = bookmark && bookmark.chapterSourceUrl === chapter.sourceUrl && bookmark.paragraphIndex === index;
+    const handleBookmarkClick = (index) => {
+        const isCurrentlyBookmarked = doBookmarksMatch(bookmark, chapter) && bookmark.paragraphIndex === index;
 
         if (isCurrentlyBookmarked) {
-            onUpdateBookmark(null); // Remove bookmark by setting it to null
+            onUpdateBookmark(null);
         } else {
-            // Set a new bookmark, ensuring we store THIS chapter's sourceUrl
-            onUpdateBookmark({ chapterSourceUrl: chapter.sourceUrl, paragraphIndex: index });
+            // Save both URL and Title to the bookmark for robust matching
+            onUpdateBookmark({
+                chapterSourceUrl: chapter.sourceUrl,
+                chapterTitle: chapter.title,
+                paragraphIndex: index
+            });
         }
     };
 
+    // New, more robust matching logic
+    const doBookmarksMatch = (bookmarkToMatch, currentChapter) => {
+        if (!bookmarkToMatch || !currentChapter) return false;
+
+        // Primary matching method: Use the sourceUrl if it's available and not null.
+        if (bookmarkToMatch.chapterSourceUrl && currentChapter.sourceUrl) {
+            return bookmarkToMatch.chapterSourceUrl === currentChapter.sourceUrl;
+        }
+
+        // Fallback matching method: Use the title if URL isn't available.
+        if (bookmarkToMatch.chapterTitle && currentChapter.title) {
+            return bookmarkToMatch.chapterTitle === currentChapter.title;
+        }
+
+        return false;
+    };
+
+
     const paragraphs = (chapter.content || '').split('\n').filter(p => p.trim() !== '');
     const isTranslating = translatingNextSourceUrl !== null;
-
-    // Determine the bookmarked index ONLY if the bookmark belongs to the current chapter
-    const bookmarkedIndex = bookmark && bookmark.chapterSourceUrl === chapter.sourceUrl ? bookmark.paragraphIndex : -1;
+    const isBookmarkedInThisChapter = doBookmarksMatch(bookmark, chapter);
+    const bookmarkedIndex = isBookmarkedInThisChapter ? bookmark.paragraphIndex : -1;
 
     return (
         <div className="chapter-view">
@@ -99,23 +112,15 @@ const ChapterView = ({
                 <div className="chapter-content">
                     {paragraphs.length > 0 ? (
                         paragraphs.map((p, index) => (
-                            <div
+                            <Paragraph
                                 key={index}
-                                ref={el => paragraphRefs.current[index] = el}
-                                className={`paragraph-container ${index === bookmarkedIndex ? 'bookmarked' : ''} ${bookmarkedIndex !== -1 && index <= bookmarkedIndex ? 'bookmarked-above' : ''}`}
-                                onMouseEnter={() => setHoveredParagraph(index)}
-                                onMouseLeave={() => setHoveredParagraph(null)}
-                            >
-                                <p>{p}</p>
-                                <div
-                                    className="bookmark-icon-container"
-                                    onClick={(e) => handleBookmarkClick(index, e)}
-                                >
-                                    {(hoveredParagraph === index || bookmarkedIndex === index) && (
-                                        <BookmarkIcon className="bookmark-svg" />
-                                    )}
-                                </div>
-                            </div>
+                                paragraphRef={el => paragraphRefs.current[index] = el}
+                                text={p}
+                                index={index}
+                                isBookmarked={index === bookmarkedIndex}
+                                isBookmarkedAbove={bookmarkedIndex !== -1 && index <= bookmarkedIndex}
+                                onBookmarkClick={handleBookmarkClick}
+                            />
                         ))
                     ) : (
                         <p>This chapter has not been translated yet.</p>

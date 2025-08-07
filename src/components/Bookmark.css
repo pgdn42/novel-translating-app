@@ -1,16 +1,28 @@
-.paragraph-container {
+.paragraph-row {
   position: relative;
-  display: block; /* Ensure it takes full width */
-  width: 100%;
-  padding: 4px 40px 4px 10px; /* Top/Bottom padding for a larger vertical target, Right padding for the icon */
-  box-sizing: border-box;
+  display: flex;
+  justify-content: center;
   transition: background-color 0.3s ease;
   border-radius: 4px;
+  /* Add a small vertical margin between rows */
+  margin: 4px 0;
+}
+
+.paragraph-content-wrapper {
+  max-width: 800px;
+  width: 100%;
+  /* Padding for the text content */
+  padding: 4px 10px;
+  box-sizing: border-box;
 }
 
 .bookmark-icon-container {
   position: absolute;
-  right: 5px;
+  /* Position icon relative to the full-width row */
+  /* It will be placed just to the right of the content wrapper */
+  left: calc(
+    50% + 400px + 10px
+  ); /* 50%(center) + half-of-max-width + 10px gap */
   top: 50%;
   transform: translateY(-50%);
   cursor: pointer;
@@ -19,15 +31,27 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  opacity: 0; /* Hidden by default */
+  /* The icon is now always in the DOM, but hidden by default */
+  opacity: 0;
   transition: opacity 0.15s ease-in-out;
 }
 
-/* Show icon when the entire row (.paragraph-container) is hovered */
-.paragraph-container:hover .bookmark-icon-container {
+/* Media query to handle narrower screens where the icon would go off-screen */
+@media (max-width: 920px) {
+  /* 800px content + 2*10px padding + 2*10px margin + 24px icon + buffer */
+  .bookmark-icon-container {
+    /* On smaller screens, fall back to positioning inside the text area */
+    left: auto;
+    right: 15px;
+  }
+}
+
+/* Show icon when the entire row is hovered */
+.paragraph-row:hover .bookmark-icon-container {
   opacity: 0.6;
 }
 
+/* On hover, make the icon fully opaque */
 .bookmark-icon-container:hover {
   opacity: 1 !important;
 }
@@ -38,16 +62,16 @@
 }
 
 /* Style for the active bookmarked icon (the bookmark itself) */
-.paragraph-container.bookmarked .bookmark-icon-container {
+.paragraph-row.bookmarked .bookmark-icon-container {
   opacity: 1; /* Always visible and fully opaque */
 }
 
 /* A yellow tint for the icon when it's the active bookmark */
-.paragraph-container.bookmarked .bookmark-svg path[fill="#71c2ff"] {
+.paragraph-row.bookmarked .bookmark-svg path[fill="#71c2ff"] {
   fill: #ffeb3b;
 }
 
 /* A subtle highlight for the bookmarked paragraph and all rows above it */
-.bookmarked-above {
+.paragraph-row.bookmarked-above {
   background-color: rgba(80, 80, 80, 0.07);
 }

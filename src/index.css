@@ -794,9 +794,7 @@ body {
 }
 
 .chapter-content {
-  max-width: 800px; /* Max width for readability, as requested */
   width: 100%;
-  padding: 0 2rem; /* Some padding on the sides */
   line-height: 1.7;
   font-size: 1.1em;
   color: #e0e0e0;

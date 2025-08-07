@@ -87,11 +87,7 @@ const App = () => {
   );
 
   const updateAppData = (updater) => {
-    setAppData(currentData => {
-      const newData = typeof updater === 'function' ? updater(currentData) : updater;
-      debouncedSave(newData);
-      return newData;
-    });
+    setAppData(updater);
   };
 
   const handleUpdateBookmark = (bookmark) => {
