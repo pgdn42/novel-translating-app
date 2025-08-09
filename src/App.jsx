@@ -974,6 +974,7 @@ const App = () => {
           onDeleteBook={() => handleBookAction({ type: 'delete', payload: appData.activeBook })}
           onBookSelect={(book) => handleBookAction({ type: 'select', payload: book })}
           onImportBooks={() => handleBookAction({ type: 'import' })}
+          onCreateNewBook={() => handleBookAction({ type: 'create' })}
           currentChapter={currentChapter}
           currentChapterList={currentChapterList}
           currentChapterIndex={currentChapterIndex}
@@ -1023,9 +1024,9 @@ const App = () => {
               Books
             </button>
             <button onClick={() => setCurrentView('glossary')} className={currentView === 'glossary' ? 'active' : ''}>Glossary</button>
-            <button onClick={() => setCurrentView('world-building')} className={currentView === 'world-building' ? 'active' : ''}>
+            {/*             <button onClick={() => setCurrentView('world-building')} className={currentView === 'world-building' ? 'active' : ''}>
               World
-            </button>
+            </button> */}
           </div>
           <div className="top-right-controls">
             <button onClick={() => setIsLogVisible(!isLogVisible)} className="log-icon-button">

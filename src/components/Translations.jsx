@@ -25,6 +25,7 @@ const Translations = ({
     onDeleteBook,
     onBookSelect,
     onImportBooks,
+    onCreateNewBook,
     currentChapter,
     currentChapterList,
     currentChapterIndex,
@@ -46,6 +47,7 @@ const Translations = ({
     const titleInputRef = useRef(null);
     const descriptionInputRef = useRef(null);
     const titleSizerRef = useRef(null);
+    const selectRef = useRef(null);
 
     useEffect(() => {
         setDescription(bookDescription || '');
@@ -160,6 +162,28 @@ const Translations = ({
         }
     };
 
+    const handleBookSelectionChange = (e) => {
+        const { value } = e.target;
+        if (value === 'CREATE_NEW_BOOK') {
+            onCreateNewBook();
+            // Reset the select to the active book after a short delay
+            setTimeout(() => {
+                if (selectRef.current) {
+                    selectRef.current.value = activeBook;
+                }
+            }, 0);
+        } else if (value === 'IMPORT_BOOKS') {
+            onImportBooks();
+            setTimeout(() => {
+                if (selectRef.current) {
+                    selectRef.current.value = activeBook;
+                }
+            }, 0);
+        } else {
+            onBookSelect(value);
+        }
+    };
+
     const filteredChapters = sortedChapters.filter(chapter =>
         chapter.title.toLowerCase().includes(searchTerm.toLowerCase())
     );
@@ -202,22 +226,23 @@ const Translations = ({
                             />
                         ) : (
                             <select
+                                ref={selectRef}
                                 className="book-title-selector"
                                 value={activeBook}
-                                onChange={(e) => onBookSelect(e.target.value)}
+                                onChange={handleBookSelectionChange}
                                 style={{ width: selectWidth }}
                             >
                                 {books.map(book => (
                                     <option key={book} value={book}>{book}</option>
                                 ))}
+                                <option disabled>---</option>
+                                <option value="CREATE_NEW_BOOK">Create New Book...</option>
+                                <option value="IMPORT_BOOKS">Import Books...</option>
                             </select>
                         )}
                     </div>
                 </div>
                 <div className="book-header-controls">
-                    <button onClick={onImportBooks} className="icon-button" title="Import Books">
-                        <ImportIcon />
-                    </button>
                     <button onClick={toggleEditing} className="icon-button" title={isEditing ? "Finish Editing" : "Edit Title & Description"}>
                         <EditIcon />
                     </button>
