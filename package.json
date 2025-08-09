@@ -53,5 +53,15 @@
     "electron-builder": "^26.0.12",
     "electron-is-dev": "^3.0.1",
     "wait-on": "^8.0.4"
+  },
+  "build": {
+    "files": [
+      "build/**/*",
+      "node_modules/**/*",
+      "server.js"
+    ],
+    "directories": {
+      "buildResources": "assets"
+    }
   }
 }

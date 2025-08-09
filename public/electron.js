@@ -2,7 +2,8 @@ const { app, BrowserWindow, dialog } = require('electron');
 const path = require('path');
 const { startServer } = require('../server.js'); // Import the server starter
 
-const isDev = require('electron-is-dev');
+// Check if the app is in development mode
+const isDev = !app.isPackaged;
 
 function createWindow() {
     // Create the browser window.
