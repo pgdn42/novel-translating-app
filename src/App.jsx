@@ -7,6 +7,7 @@ import NewBookModal from './components/NewBookModal';
 import BookSettingsModal from './components/BookSettingsModal';
 import TranslationComparisonModal from './components/TranslationComparisonModal';
 import WelcomeScreen from './components/WelcomeScreen';
+import LoadingScreen from './components/LoadingScreen'; // Import the new component
 import api from './api';
 import { onLog, logToPanel } from './logService';
 import { ReactComponent as LogIcon } from './assets/log-icon.svg';
@@ -66,6 +67,9 @@ const App = () => {
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [isComparisonModalOpen, setIsComparisonModalOpen] = useState(false);
   const [comparisonData, setComparisonData] = useState(null);
+
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadingMessage, setLoadingMessage] = useState('Initializing application...');
 
   const stateRef = useRef({
     appData,
@@ -368,11 +372,14 @@ const App = () => {
 
     const fetchData = async () => {
       try {
+        setIsLoading(true);
+        setLoadingMessage('Loading application settings...');
         // 1. Get cached application state (includes last active book, and potentially bookmarks)
         const storedAppData = await api.getStorage('novelNavigatorData');
         const cachedData = storedAppData.novelNavigatorData || { activeBook: null, books: {} };
 
         // 2. Get the books directory path
+        setLoadingMessage('Finding your books directory...');
         const pathData = await api.getStorage('booksDirectoryPath');
         const booksDir = pathData.booksDirectoryPath;
         let booksFromFS = {};
@@ -380,12 +387,15 @@ const App = () => {
         // 3. Load all book data from the filesystem if directory is set
         if (booksDir) {
           logToPanel('info', `Loading books from saved directory: ${booksDir}`);
+          setLoadingMessage(`Loading books...`);
           await api.setBooksDirectory(booksDir);
           booksFromFS = await api.importBooks(booksDir);
         } else {
           logToPanel('info', 'No book directory set. Using only cached data.');
+          setLoadingMessage('Ready for setup!');
         }
 
+        setLoadingMessage('Merging local and cached data...');
         // 4. Merge filesystem data with cached data
         // This ensures that data like bookmarks, which are only in the cache, are preserved.
         const finalBooks = {};
@@ -435,11 +445,17 @@ const App = () => {
 
         // 7. Set the final, merged application state
         setAppData(finalData);
+        setLoadingMessage('Synchronization complete!');
 
       } catch (error) {
         console.error("Failed to fetch initial data:", error);
         logToPanel('error', `Failed to fetch initial data: ${error.message}`);
         setAppData({ activeBook: null, books: {} }); // Fallback to a clean state
+      } finally {
+        // Hide the loading screen after a short delay
+        setTimeout(() => {
+          setIsLoading(false);
+        }, 250);
       }
     };
 
@@ -519,6 +535,15 @@ const App = () => {
     if (!isConfirmed) {
       return;
     }
+    api.deleteBook(bookNameToDelete)
+      .then(result => {
+        // Use the message from the server's response
+        logToPanel('success', result.message || `Successfully deleted folder for "${bookNameToDelete}"`);
+      })
+      .catch(err => {
+        logToPanel('error', `Could not delete folder for "${bookNameToDelete}": ${err.message}`);
+      });
+
     updateAppData(currentData => {
       const newBooks = { ...currentData.books };
       delete newBooks[bookNameToDelete];
@@ -568,7 +593,12 @@ const App = () => {
         chapters: [],
         rawChapterData: [],
         description: '',
-        settings: {},
+        settings: {
+          startUrl: '',
+          textSelector: '',
+          titleSelector: '',
+          nextLinkSelector: '',
+        },
         worldBuilding: { categories: [] },
         bookmark: null
       };
@@ -765,6 +795,45 @@ const App = () => {
     }
   };
 
+  const handleStartTranslationByIndex = (index) => {
+    const book = appData.books[appData.activeBook];
+    if (book && book.rawChapterData && index >= 0 && index < book.rawChapterData.length) {
+      const chapterToTranslate = book.rawChapterData[index];
+      handleStartTranslation(appData.activeBook, chapterToTranslate);
+    } else {
+      logToPanel('error', `Chapter number ${index + 1} is out of bounds.`);
+    }
+  };
+
+  const handleTranslateNextChapter = () => {
+    const book = appData.books[appData.activeBook];
+    if (!book) return;
+
+    if (!book.rawChapterData) {
+      logToPanel('info', 'No raw chapters available to translate.');
+      return;
+    }
+
+    const translatedUrls = new Set(book.chapters.map(c => c.sourceUrl));
+    const pendingUrls = new Set(
+      book.rawChapterData
+        .filter(c => c.translationStatus === 'pending')
+        .map(c => c.sourceUrl)
+    );
+
+    const nextToTranslate = book.rawChapterData.find(
+      c => !translatedUrls.has(c.sourceUrl) && !pendingUrls.has(c.sourceUrl)
+    );
+
+
+    if (nextToTranslate) {
+      logToPanel('info', `Queuing next chapter for translation: ${nextToTranslate.title}`);
+      handleStartTranslation(appData.activeBook, nextToTranslate);
+    } else {
+      logToPanel('info', 'All available chapters are either translated or pending.');
+    }
+  };
+
   const handleReturnToTOC = () => {
     setCurrentChapter(null);
     setCurrentChapterIndex(-1);
@@ -945,6 +1014,9 @@ const App = () => {
     }
   };
 
+  if (isLoading) {
+    return <LoadingScreen message={loadingMessage} />;
+  }
 
   const renderView = () => {
     if (!appData.activeBook || !activeBookData) {
@@ -968,6 +1040,8 @@ const App = () => {
           onDeleteRawChapters={handleDeleteRawChapters}
           onScrapeChapters={handleScrapeChapters}
           onStartTranslation={(...args) => handleStartTranslation(appData.activeBook, ...args)}
+          onStartTranslationByIndex={handleStartTranslationByIndex}
+          onTranslateNextChapter={handleTranslateNextChapter}
           sortOrder={sortOrder}
           setSortOrder={setSortOrder}
           onOpenSettings={() => setIsSettingsModalOpen(true)}
@@ -1024,7 +1098,7 @@ const App = () => {
               Books
             </button>
             <button onClick={() => setCurrentView('glossary')} className={currentView === 'glossary' ? 'active' : ''}>Glossary</button>
-            {/*             <button onClick={() => setCurrentView('world-building')} className={currentView === 'world-building' ? 'active' : ''}>
+            {/* <button onClick={() => setCurrentView('world-building')} className={currentView === 'world-building' ? 'active' : ''}>
               World
             </button> */}
           </div>

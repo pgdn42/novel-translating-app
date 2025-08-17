@@ -175,6 +175,19 @@ const api = {
         }
     },
 
+    deleteBook: async (bookName) => {
+        const response = await fetch(`${API_BASE_URL}/fs/delete-book`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ bookName }),
+        });
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(`Failed to delete book: ${error.error}`);
+        }
+        return response.json(); // Return the success message from the server
+    },
+
     deleteRawChapters: async (bookName) => {
         const response = await fetch(`${API_BASE_URL}/fs/delete-raw-chapters`, {
             method: 'POST',

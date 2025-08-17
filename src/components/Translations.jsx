@@ -19,6 +19,8 @@ const Translations = ({
     onDeleteRawChapters,
     onScrapeChapters,
     onStartTranslation,
+    onStartTranslationByIndex,
+    onTranslateNextChapter,
     sortOrder,
     setSortOrder,
     onOpenSettings,
@@ -44,6 +46,7 @@ const Translations = ({
     const [searchTerm, setSearchTerm] = useState('');
     const [isEditing, setIsEditing] = useState(false);
     const [selectWidth, setSelectWidth] = useState('auto');
+    const [translateChapterNumber, setTranslateChapterNumber] = useState('');
     const titleInputRef = useRef(null);
     const descriptionInputRef = useRef(null);
     const titleSizerRef = useRef(null);
@@ -184,6 +187,16 @@ const Translations = ({
         }
     };
 
+    const handleTranslateByNumber = () => {
+        const chapterNumber = parseInt(translateChapterNumber, 10);
+        if (!isNaN(chapterNumber) && chapterNumber > 0) {
+            onStartTranslationByIndex(chapterNumber - 1); // convert to 0-based index
+            setTranslateChapterNumber('');
+        } else {
+            logToPanel('error', 'Please enter a valid chapter number.');
+        }
+    };
+
     const filteredChapters = sortedChapters.filter(chapter =>
         chapter.title.toLowerCase().includes(searchTerm.toLowerCase())
     );
@@ -293,6 +306,18 @@ const Translations = ({
                         <button onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}>
                             Sort {sortOrder === 'asc' ? 'Newest' : 'Oldest'} First
                         </button>
+                        <div className="translate-by-number-container">
+                            <button onClick={handleTranslateByNumber}>
+                                Translate:
+                            </button>
+                            <input
+                                type="number"
+                                value={translateChapterNumber}
+                                onChange={(e) => setTranslateChapterNumber(e.target.value)}
+                                placeholder="#"
+                            />
+                        </div>
+                        <button onClick={onTranslateNextChapter}>Translate Next</button>
                         {bookmark && (
                             <button onClick={handleGoToBookmark}>Go to Bookmark</button>
                         )}

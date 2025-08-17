@@ -497,6 +497,7 @@ body {
 .toc-controls {
   display: flex;
   gap: 15px;
+  align-items: center; /* Align items vertically */
 }
 
 .toc-controls.left {
@@ -1231,4 +1232,31 @@ body {
   100% {
     transform: rotate(360deg);
   }
+}
+.translate-by-number-container {
+  display: flex;
+  align-items: center;
+  background-color: #4a4d58;
+  border-radius: 6px;
+  overflow: hidden; /* To keep the input inside the rounded corners */
+}
+
+.translate-by-number-container button {
+  border-radius: 0;
+  border-right: 1px solid #5f6368;
+}
+
+.translate-by-number-container input[type="number"] {
+  width: 60px; /* Adjust width as needed */
+  padding: 8px 12px;
+  border: none;
+  background-color: #20232a;
+  color: white;
+  -moz-appearance: textfield; /* Firefox */
+}
+
+.translate-by-number-container input[type="number"]::-webkit-outer-spin-button,
+.translate-by-number-container input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }

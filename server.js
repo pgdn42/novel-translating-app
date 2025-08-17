@@ -274,6 +274,30 @@ function startServer(dialog) {
         }
     });
 
+    app.post('/fs/delete-book', async (req, res) => {
+        const { bookName } = req.body;
+        if (!bookName) {
+            return res.status(400).json({ error: 'Book name is required.' });
+        }
+
+        const booksDir = store.get('booksDirectoryPath');
+        if (!booksDir) {
+            return res.status(400).json({ error: 'Books directory path is not configured.' });
+        }
+
+        const bookPath = path.join(booksDir, bookName);
+
+        try {
+            // Use the promise-based `rm` from `fsp` which works with async/await.
+            await fsp.rm(bookPath, { recursive: true, force: true });
+            console.log(`SUCCESS: Successfully deleted directory: ${bookPath}`);
+            res.json({ success: true, message: `Deleted book folder: ${bookName}` });
+        } catch (error) {
+            console.error(`FAILURE: Failed to delete folder at ${bookPath}`, error);
+            res.status(500).json({ error: `Failed to delete folder: ${error.message}` });
+        }
+    });
+
     app.post('/fs/delete-raw-chapters', async (req, res) => {
         const { bookName } = req.body;
         const booksDirPath = store.get('booksDirectoryPath');
